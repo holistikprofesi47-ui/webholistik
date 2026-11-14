@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'holistikprofesi47@gmail.com' ||
+        request.auth.token.email == 'holistikundip@gmail.com' ||
+        (request.auth.token.email != null && (request.auth.token.email.matches('.*undip.*') || request.auth.token.email.matches('.*holistik.*'))) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUser(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 100;
+    }
+
+    function isValidAppointment(data) {
+      return data.bookingCode is string && data.bookingCode.size() <= 50 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.therapyId is string && data.therapyId.size() <= 100 &&
+             data.date is string && data.date.size() <= 30 &&
+             data.status in ['Menunggu', 'Terjadwal', 'Selesai', 'Dibatalkan'];
+    }
+
+    function isValidProgressNote(data) {
+      return data.patientId is string && data.patientId.size() <= 128 &&
+             data.patientName is string && data.patientName.size() <= 100 &&
+             data.therapyName is string && data.therapyName.size() <= 150 &&
+             data.visitDate is string && data.visitDate.size() <= 30;
+    }
+
+    function isValidRegistration(data) {
+      return data.patientName is string && data.patientName.size() > 0 && data.patientName.size() <= 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 100;
+    }
+
+    function isValidClinicalRecord(data) {
+      return data.patientId is string && data.patientId.size() > 0 && data.patientId.size() <= 128 &&
+             data.nurseInCharge is string && data.nurseInCharge.size() > 0 && data.nurseInCharge.size() <= 100;
+    }
+
+    // User Profiles collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidUser(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // Registrations collection (Form Pendaftaran Akun Baru DipoCare)
+    match /registrations/{registrationId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidRegistration(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Appointments collection
+    match /appointments/{appointmentId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidAppointment(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // Clinical Progress Notes collection
+    match /clinical_progress_notes/{noteId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidProgressNote(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // Clinical Records collection (Catatan Perawatan Terapis / Rekam Medis)
+    match /clinical_records/{recordId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidClinicalRecord(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Admins registry
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
