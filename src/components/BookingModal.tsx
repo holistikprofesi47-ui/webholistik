@@ -20,6 +20,7 @@ import { Therapy, LocationItem, Appointment, UserProfile } from '../types';
 import { GENERATE_TIME_SLOTS } from '../data/mockData';
 import { generateBookingCode, getIndonesianDayName, formatIndonesianDate } from '../utils/storage';
 import { appendAppointmentToSheet } from '../services/googleSheets';
+import { appendPatientRegistrationToEndpoint } from '../services/patientRegistrationEndpoint';
 import { saveAppointmentToFirestore } from '../services/firebaseFirestore';
 import { saveAppointmentToRTDB } from '../services/firebaseRealtime';
 import { safeStorage } from '../utils/storage';
@@ -65,6 +66,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   // User form data
   const [patientName, setPatientName] = useState<string>('');
   const [patientNumber, setPatientNumber] = useState<string>('');
+  const [patientGender, setPatientGender] = useState<UserProfile['gender'] | ''>('');
   const [patientPhone, setPatientPhone] = useState<string>('');
   const [patientEmail, setPatientEmail] = useState<string>('');
   const [maritalStatus, setMaritalStatus] = useState<UserProfile['maritalStatus'] | ''>('');
@@ -73,6 +75,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
   // Validation error state
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [registrationSyncStatus, setRegistrationSyncStatus] = useState<
+    'idle' | 'sending' | 'sent-unverified' | 'failed'
+  >('idle');
 
   // Created appointment result
   const [createdAppointment, setCreatedAppointment] = useState<Appointment | null>(null);
@@ -100,12 +105,14 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
       setPatientName(currentUser.name || '');
       setPatientNumber(currentUser.patientNumber || '');
+      setPatientGender(currentUser.gender || '');
       setPatientPhone(currentUser.phone || '');
       setPatientEmail(currentUser.email || '');
       setMaritalStatus(currentUser.maritalStatus || '');
       setOccupation(currentUser.occupation || '');
       setNotes('');
       setErrorMessage('');
+      setRegistrationSyncStatus('idle');
       setCreatedAppointment(null);
     }
   }, [isOpen, preSelectedTherapy, therapies, locations, currentUser]);
@@ -236,6 +243,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         setErrorMessage('Nama lengkap pasien wajib diisi.');
         return;
       }
+      if (!patientGender) {
+        setErrorMessage('Jenis kelamin pasien wajib dipilih.');
+        return;
+      }
       if (!patientPhone.trim()) {
         setErrorMessage('Nomor telepon / WhatsApp wajib diisi.');
         return;
@@ -289,7 +300,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         userPhone: patientPhone.trim(),
         patientNumber: patientNumber.trim() || 'HNC-PASIEN-' + Math.floor(100000 + Math.random() * 900000),
         dateOfBirth: currentUser.dateOfBirth || '',
-        gender: currentUser.gender,
+        gender: patientGender,
         maritalStatus,
         occupation: occupation.trim(),
         therapyId: selectedTherapy.id,
@@ -320,6 +331,15 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       }
 
       setStep(6);
+
+      setRegistrationSyncStatus('sending');
+      try {
+        await appendPatientRegistrationToEndpoint(newAppointment);
+        setRegistrationSyncStatus('sent-unverified');
+      } catch (syncErr) {
+        console.error('Gagal mengirim pendaftaran ke spreadsheet:', syncErr);
+        setRegistrationSyncStatus('failed');
+      }
 
       // Sync ke Google Spreadsheet jika token tersedia
       const activeToken = accessToken || safeStorage.get('hnc_google_access_token');
@@ -717,6 +737,24 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
               <div>
                 <label className="text-xs font-bold text-stone-700 block mb-1">
+                  Jenis Kelamin *
+                </label>
+                <select
+                  required
+                  value={patientGender}
+                  onChange={(e) =>
+                    setPatientGender(e.target.value as UserProfile['gender'] | '')
+                  }
+                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                >
+                  <option value="">Pilih jenis kelamin</option>
+                  <option value="Laki-laki">Laki-laki</option>
+                  <option value="Perempuan">Perempuan</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-700 block mb-1">
                   Nomor Telepon / WhatsApp Aktif *
                 </label>
                 <div className="relative">
@@ -863,6 +901,24 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   Jadwal tercatat dan menunggu skrining kontraindikasi oleh perawat sebelum disetujui.
                 </p>
               </div>
+
+              {registrationSyncStatus !== 'idle' && (
+                <p
+                  role="status"
+                  className={`rounded-xl px-3 py-2 text-xs ${
+                    registrationSyncStatus === 'failed'
+                      ? 'bg-amber-50 text-amber-800'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
+                  {registrationSyncStatus === 'sending' &&
+                    'Mengirim data pendaftaran minimal ke spreadsheet...'}
+                  {registrationSyncStatus === 'sent-unverified' &&
+                    'Permintaan pengiriman terkirim, tetapi spreadsheet tidak mengirim konfirmasi yang dapat dibaca aplikasi.'}
+                  {registrationSyncStatus === 'failed' &&
+                    'Data pendaftaran gagal dikirim ke spreadsheet. Jadwal tetap tersimpan; silakan minta admin memeriksa endpoint.'}
+                </p>
+              )}
 
               {/* Booking Card */}
               <div className="bg-gradient-to-br from-emerald-900 to-teal-950 text-white rounded-3xl p-5 shadow-xl text-left relative overflow-hidden">
