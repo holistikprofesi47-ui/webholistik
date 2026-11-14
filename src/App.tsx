@@ -56,9 +56,7 @@ import {
 export default function App() {
   // Navigation & View States
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
-    return safeStorage.get('hnc_nakes_authenticated') === 'true';
-  });
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [showNakesLoginModal, setShowNakesLoginModal] = useState<boolean>(false);
 
   // Google OAuth & Sheets State
@@ -117,12 +115,7 @@ export default function App() {
 
   // Nakes Mode authentication handlers
   const handleRequestNakesAccess = () => {
-    const isAuthenticated = safeStorage.get('hnc_nakes_authenticated') === 'true';
-    if (isAuthenticated) {
-      handleNakesLoginSuccess();
-    } else {
-      setShowNakesLoginModal(true);
-    }
+    setShowNakesLoginModal(true);
   };
 
   const handleNakesLoginSuccess = async () => {
@@ -164,6 +157,9 @@ export default function App() {
 
   // Check onboarding and Google auth on mount
   useEffect(() => {
+    safeStorage.remove('hnc_nakes_authenticated');
+    safeStorage.remove('hnc_nakes_user');
+
     if (!hasSeenOnboarding()) {
       setShowOnboarding(true);
     }

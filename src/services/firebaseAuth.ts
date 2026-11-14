@@ -18,6 +18,8 @@ export const registerWithEmailPassword = async (email: string, password: string)
 };
 
 export const loginWithEmailPassword = async (email: string, password: string): Promise<User> => {
+  cachedAccessToken = null;
+  safeStorage.remove('hnc_google_access_token');
   const result = await signInWithEmailAndPassword(auth, email, password);
   return result.user;
 };
@@ -28,6 +30,7 @@ export const SCOPES = [
 
 const provider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => provider.addScope(scope));
+provider.setCustomParameters({ prompt: 'select_account' });
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = safeStorage.get('hnc_google_access_token');

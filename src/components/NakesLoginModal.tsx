@@ -7,11 +7,12 @@ import {
   EyeOff,
   AlertCircle,
   X,
-  ShieldCheck,
-  CheckCircle2
+  ShieldCheck
 } from 'lucide-react';
-import { googleSignIn } from '../services/firebaseAuth';
-import { safeStorage } from '../utils/storage';
+import type { User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { googleSignIn, loginWithEmailPassword, logoutGoogle } from '../services/firebaseAuth';
 
 interface NakesLoginModalProps {
   isOpen: boolean;
@@ -20,23 +21,40 @@ interface NakesLoginModalProps {
   onGoogleAuthSuccess?: (user: any, token: string) => void;
 }
 
-// SHA-256 cryptographic helper
-async function hashPasscode(str: string): Promise<string> {
-  const enc = new TextEncoder().encode(str);
-  const hashBuf = await crypto.subtle.digest('SHA-256', enc);
-  const hashArr = Array.from(new Uint8Array(hashBuf));
-  return hashArr.map((b) => b.toString(16).padStart(2, '0')).join('');
+const ADMIN_EMAIL = 'holistikprofesi47@gmail.com';
+const AUTHORIZED_STAFF_EMAILS = new Set([
+  ADMIN_EMAIL,
+  'holistikundip@gmail.com'
+]);
+
+async function isAuthorizedStaff(user: User): Promise<boolean> {
+  const email = user.email?.trim().toLowerCase();
+  if (email && AUTHORIZED_STAFF_EMAILS.has(email)) return true;
+
+  const adminProfile = await getDoc(doc(db, 'admins', user.uid));
+  return adminProfile.exists();
 }
 
-// Authorized Admin hash digests (prevents storing plaintext passwords in code)
-const AUTHORIZED_ADMIN_HASHES = [
-  'b8c31958f6121e02f35a5802fe8719d71f0410ee3ad8b4f481e56cebd588a5a9', // Undipjaya
-  '8611dfb49f32765c5511cf9b873c7b5636057c92e894bbc74843472fb2badc12', // undipjaya
-  'c4b126bcba0cb233d690a2a466a241b18413158c356f1dc77a9ea6e885d56b02', // UNDIPJAYA
-  '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'  // 1234
-];
+function getGoogleLoginErrorMessage(error: unknown): string {
+  const code = (error as { code?: string } | null)?.code;
 
-const ADMIN_EMAIL = 'holistikundip@gmail.com';
+  switch (code) {
+    case 'auth/popup-closed-by-user':
+      return 'Jendela login Google ditutup sebelum selesai.';
+    case 'auth/popup-blocked':
+      return 'Popup login diblokir browser. Izinkan popup untuk situs ini lalu coba lagi.';
+    case 'auth/unauthorized-domain':
+      return 'Domain situs belum diizinkan di Firebase Authentication > Settings > Authorized domains.';
+    case 'auth/operation-not-allowed':
+      return 'Provider Google belum diaktifkan di Firebase Authentication > Sign-in method.';
+    case 'auth/account-exists-with-different-credential':
+      return 'Email ini sudah terdaftar dengan sandi Firebase. Gunakan form email dan sandi di bawah.';
+    case 'auth/network-request-failed':
+      return 'Koneksi jaringan gagal. Periksa internet lalu coba lagi.';
+    default:
+      return `Login Google gagal${code ? ` (${code})` : ''}. Periksa konfigurasi Google di Firebase Console.`;
+  }
+}
 
 export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
   isOpen,
@@ -58,24 +76,25 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
     setIsGoogleLoading(true);
     try {
       const result = await googleSignIn();
-      if (result) {
-        safeStorage.set('hnc_nakes_authenticated', 'true');
-        safeStorage.set('hnc_nakes_user', result.user.email || ADMIN_EMAIL);
-        if (onGoogleAuthSuccess) {
-          onGoogleAuthSuccess(result.user, result.accessToken);
-        }
-        setIsGoogleLoading(false);
-        onLoginSuccess();
-        onClose();
+      if (!result) {
+        setErrorMessage('Login Google tidak menghasilkan sesi. Silakan coba lagi.');
+        return;
       }
-    } catch (err: any) {
-      console.error('Nakes Google login error:', err);
+
+      if (!(await isAuthorizedStaff(result.user))) {
+        await logoutGoogle();
+        setErrorMessage('Akun Google ini belum terdaftar sebagai staf yang diizinkan di Firebase.');
+        return;
+      }
+
+      onGoogleAuthSuccess?.(result.user, result.accessToken);
+      onLoginSuccess();
+      onClose();
+    } catch (error) {
+      console.error('Nakes Google login error:', error);
+      setErrorMessage(getGoogleLoginErrorMessage(error));
+    } finally {
       setIsGoogleLoading(false);
-      setErrorMessage(
-        err?.message?.includes('popup-closed')
-          ? 'Jendela login Google ditutup sebelum selesai.'
-          : 'Gagal login dengan Google. Pastikan izin akses telah diberikan.'
-      );
     }
   };
 
@@ -85,46 +104,30 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
     setIsLoading(true);
 
     try {
-      const inputId = emailOrUser.trim().toLowerCase();
-      const inputPass = password.trim();
-
-      const isAuthorizedEmail =
-        inputId === ADMIN_EMAIL.toLowerCase() ||
-        inputId === 'holistikundip' ||
-        inputId.endsWith('@undip.ac.id') ||
-        inputId === 'admin' ||
-        inputId === 'nakes' ||
-        inputId === 'pengelola' ||
-        inputId.includes('undip') ||
-        inputId.length > 0;
-
-      if (!isAuthorizedEmail) {
-        setIsLoading(false);
-        setErrorMessage(`Hanya akun administrator ${ADMIN_EMAIL} atau tenaga kesehatan terdaftar yang diizinkan.`);
+      const email = emailOrUser.trim().toLowerCase();
+      const user = await loginWithEmailPassword(email, password);
+      if (!(await isAuthorizedStaff(user))) {
+        await logoutGoogle();
+        setErrorMessage('Akun ini tidak terdaftar sebagai staf yang berwenang.');
         return;
       }
 
-      // Verify passcode using standard Web Crypto SHA-256 hashing & direct match check
-      const hashedInput = await hashPasscode(inputPass);
-      const isPassValid =
-        inputPass === 'Undipjaya' ||
-        inputPass.toLowerCase() === 'undipjaya' ||
-        inputPass === '1234' ||
-        AUTHORIZED_ADMIN_HASHES.includes(hashedInput);
-
-      if (isPassValid) {
-        safeStorage.set('hnc_nakes_authenticated', 'true');
-        safeStorage.set('hnc_nakes_user', ADMIN_EMAIL);
-        setIsLoading(false);
-        onLoginSuccess();
-        onClose();
-      } else {
-        setIsLoading(false);
-        setErrorMessage('Kata sandi pengelola tidak sesuai. Akses ditolak.');
-      }
-    } catch (err) {
+      onLoginSuccess();
+      onClose();
+    } catch (error) {
+      console.error('Nakes email/password login error:', error);
+      const code = (error as { code?: string } | null)?.code;
+      setErrorMessage(
+        code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found'
+          ? 'Email atau kata sandi Firebase tidak sesuai.'
+          : code === 'auth/too-many-requests'
+            ? 'Terlalu banyak percobaan. Coba lagi beberapa saat.'
+            : code === 'auth/network-request-failed'
+              ? 'Koneksi jaringan gagal. Periksa internet lalu coba lagi.'
+              : `Login Firebase gagal${code ? ` (${code})` : ''}.`
+      );
+    } finally {
       setIsLoading(false);
-      setErrorMessage('Terjadi kendala saat memproses verifikasi keamanan.');
     }
   };
 
@@ -188,7 +191,7 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span>{isGoogleLoading ? 'Menghubungkan Google...' : 'Masuk dengan Google (holistikundip@gmail.com)'}</span>
+              <span>{isGoogleLoading ? 'Menghubungkan Google...' : 'Masuk dengan Google (holistikprofesi47@gmail.com)'}</span>
             </button>
             <p className="text-[11px] text-center text-stone-500">
               Metode resmi untuk sinkronisasi otomatis dengan Google Spreadsheet & Cloud Services.
@@ -197,7 +200,7 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
 
           <div className="relative flex py-1 items-center">
             <div className="flex-grow border-t border-stone-200"></div>
-            <span className="flex-shrink mx-3 text-[11px] text-stone-400 font-semibold uppercase">Atau Sandi Pengelola</span>
+            <span className="flex-shrink mx-3 text-[11px] text-stone-400 font-semibold uppercase">Atau email & sandi Firebase</span>
             <div className="flex-grow border-t border-stone-200"></div>
           </div>
 
@@ -211,18 +214,18 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
             )}
 
             <div className="space-y-3 text-xs">
-              {/* Email / Username Input */}
+              {/* Email Input */}
               <div>
                 <label className="font-bold text-stone-700 block mb-1.5 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Email Akun Pengelola</span>
+                  <span>Email Firebase staf</span>
                 </label>
                 <div className="relative">
                   <input
-                    type="text"
+                    type="email"
                     value={emailOrUser}
                     onChange={(e) => setEmailOrUser(e.target.value)}
-                    placeholder="holistikundip@gmail.com"
+                    placeholder="holistikprofesi47@gmail.com"
                     className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3.5 py-2.5 text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
                     required
                   />
@@ -233,7 +236,7 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
               <div>
                 <label className="font-bold text-stone-700 block mb-1.5 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Kata Sandi Pengelola</span>
+                  <span>Kata sandi Firebase</span>
                 </label>
                 <div className="relative">
                   <input
@@ -270,7 +273,7 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
                 className="w-2/3 bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4 text-emerald-300" />
-                <span>{isLoading ? 'Memverifikasi...' : 'Masuk Portal Admin'}</span>
+                <span>{isLoading ? 'Memverifikasi...' : 'Masuk dengan Email'}</span>
               </button>
             </div>
           </form>
