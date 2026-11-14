@@ -94,6 +94,9 @@ export async function saveUserProfileToFirestore(profile: UserProfile): Promise<
       patientNumber: profile.patientNumber || '',
       phone: profile.phone || '',
       email: (profile.email || '').toLowerCase().trim(),
+      dateOfBirth: profile.dateOfBirth || '',
+      gender: profile.gender || '',
+      maritalStatus: profile.maritalStatus || '',
       address: profile.address || '',
       emergencyContact: profile.emergencyContact || '',
       medicalNotes: profile.medicalNotes || '',
@@ -323,6 +326,9 @@ export interface PatientRegistrationRecord {
   patientName: string;
   patientPhone: string;
   email: string;
+  dateOfBirth: string;
+  gender: UserProfile['gender'];
+  maritalStatus?: UserProfile['maritalStatus'];
   attendanceStatus?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -337,6 +343,9 @@ export async function saveRegistrationToFirestore(reg: PatientRegistrationRecord
       patientName: reg.patientName || '',
       patientPhone: reg.patientPhone || '',
       email: (reg.email || '').toLowerCase().trim(),
+      dateOfBirth: reg.dateOfBirth,
+      gender: reg.gender,
+      maritalStatus: reg.maritalStatus || '',
       attendanceStatus: reg.attendanceStatus || 'Belum Hadir',
       createdAt: reg.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()

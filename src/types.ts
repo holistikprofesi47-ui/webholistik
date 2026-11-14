@@ -74,6 +74,9 @@ export interface UserProfile {
   patientNumber: string;
   phone: string;
   email: string;
+  dateOfBirth?: string;
+  gender?: 'Laki-laki' | 'Perempuan';
+  maritalStatus?: 'Belum menikah' | 'Sudah menikah';
   password?: string;
   address: string;
   emergencyContact?: string;
@@ -108,4 +111,3 @@ export interface ClinicalProgressNote {
 }
 
 export type ActiveTab = 'home' | 'therapies' | 'videos' | 'appointments' | 'profile' | 'admin';
-

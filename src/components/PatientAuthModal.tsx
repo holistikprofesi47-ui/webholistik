@@ -5,6 +5,7 @@ import { saveUserProfileToFirestore, saveRegistrationToFirestore, getAllUserProf
 import { saveUserProfileToRTDB } from '../services/firebaseRealtime';
 import { registerWithEmailPassword, loginWithEmailPassword } from '../services/firebaseAuth';
 import { UserProfile } from '../types';
+import { formatAge, getAgeParts, getLocalDateInputValue } from '../utils/patientDemographics';
 
 interface PatientAuthModalProps {
   isOpen: boolean;
@@ -25,6 +26,9 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [gender, setGender] = useState<UserProfile['gender'] | ''>('');
+  const [maritalStatus, setMaritalStatus] = useState<UserProfile['maritalStatus'] | ''>('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -35,6 +39,9 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
     setPassword('');
     setName('');
     setPhone('');
+    setDateOfBirth('');
+    setGender('');
+    setMaritalStatus('');
     setError('');
   };
 
@@ -42,6 +49,8 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
     resetForm();
     onClose();
   };
+
+  const currentRegistrationAge = getAgeParts(dateOfBirth);
 
   const safeSuccess = (data: UserProfile) => {
     if (typeof onSuccess === 'function') {
@@ -135,6 +144,9 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           name: foundPatient.name || 'Pasien Terdaftar',
           email: foundPatient.email || (cleanInput.includes('@') ? cleanInput : ''),
           phone: foundPatient.phone || foundPatient.no_hp || phone || '',
+          dateOfBirth: foundPatient.dateOfBirth || foundPatient.birthDate || '',
+          gender: foundPatient.gender,
+          maritalStatus: foundPatient.maritalStatus,
           patientNumber: foundPatient.no_rm || foundPatient.patientNumber || generatePatientNumber(),
           address: foundPatient.address || foundPatient.alamat || 'Semarang',
           emergencyContact: foundPatient.emergencyContact || foundPatient.emergency_contact || '-',
@@ -170,6 +182,28 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           return;
         }
 
+        const registrationAge = getAgeParts(dateOfBirth);
+        if (!registrationAge) {
+          setError('Mohon pilih tanggal lahir yang valid dan tidak melewati hari ini.');
+          setLoading(false);
+          return;
+        }
+        if (!gender) {
+          setError('Mohon pilih jenis kelamin pasien.');
+          setLoading(false);
+          return;
+        }
+        if (
+          gender === 'Perempuan' &&
+          registrationAge.years >= 18 &&
+          registrationAge.years <= 100 &&
+          !maritalStatus
+        ) {
+          setError('Mohon pilih status pernikahan pasien.');
+          setLoading(false);
+          return;
+        }
+
         // Cek dulu apakah email sudah dipakai di daftar pasien
         const registeredList = getRegisteredPatients();
         const existing = registeredList.find((p) => p.email && p.email.toLowerCase() === cleanEmail);
@@ -197,25 +231,14 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
         const generatedRM = generatePatientNumber();
         const cleanPhone = phone.trim();
 
-        // 2. Simpan ke koleksi Firestore "registrations" (Spesifikasi Form Pendaftaran Akun Baru)
-        try {
-          await saveRegistrationToFirestore({
-            id: newId,
-            patientName: name.trim(),
-            patientPhone: cleanPhone,
-            email: cleanEmail,
-            attendanceStatus: 'Belum Hadir',
-            createdAt: new Date().toISOString()
-          });
-        } catch (regErr) {
-          console.warn('Firestore registrations collection notice:', regErr);
-        }
-
         const patientProfile: UserProfile = {
           id: newId,
           name: name.trim(),
           email: cleanEmail,
           phone: cleanPhone,
+          dateOfBirth,
+          gender,
+          maritalStatus: gender === 'Perempuan' ? maritalStatus : undefined,
           patientNumber: generatedRM,
           address: 'Semarang',
           emergencyContact: '-',
@@ -224,21 +247,28 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           isGuest: false
         };
 
-        // Simpan ke Firestore users, Realtime Database & Local Storage
+        // Simpan data pendaftaran dan profil secara lengkap ke Firebase sebelum mengonfirmasi.
+        await saveRegistrationToFirestore({
+          id: newId,
+          patientName: patientProfile.name,
+          patientPhone: cleanPhone,
+          email: cleanEmail,
+          dateOfBirth,
+          gender,
+          maritalStatus: patientProfile.maritalStatus,
+          attendanceStatus: 'Belum Hadir',
+          createdAt: new Date().toISOString()
+        });
+        await saveUserProfileToFirestore(patientProfile);
+        await saveUserProfileToRTDB(patientProfile);
         saveRegisteredPatient(patientProfile);
-        try {
-          await saveUserProfileToFirestore(patientProfile);
-          await saveUserProfileToRTDB(patientProfile);
-        } catch (fsErr) {
-          console.warn('Firebase profile sync notice:', fsErr);
-        }
 
         setLoading(false);
         safeSuccess(patientProfile);
         handleClose();
       } catch (err: any) {
         console.error('CATCH REGISTER ERROR:', err);
-        setError('Gagal mendaftarkan akun. Silakan coba kembali.');
+        setError('Akun tidak dapat disimpan ke Firebase. Periksa koneksi, lalu coba kembali atau hubungi admin.');
         setLoading(false);
       }
     }
@@ -246,7 +276,7 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
         <button
           onClick={handleClose}
           className="absolute right-4 top-4 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -324,6 +354,66 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
                     className="w-full rounded-xl border border-gray-300 py-2.5 pl-9 pr-4 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Tanggal Lahir *</label>
+                  <input
+                    type="date"
+                    required
+                    max={getLocalDateInputValue()}
+                    value={dateOfBirth}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Jenis Kelamin *</label>
+                  <select
+                    required
+                    value={gender}
+                    onChange={(e) => {
+                      const value = e.target.value as UserProfile['gender'] | '';
+                      setGender(value);
+                      if (value !== 'Perempuan') setMaritalStatus('');
+                    }}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Pilih jenis kelamin</option>
+                    <option value="Laki-laki">Laki-laki</option>
+                    <option value="Perempuan">Perempuan</option>
+                  </select>
+                </div>
+              </div>
+
+              {gender === 'Perempuan' &&
+                (currentRegistrationAge?.years ?? 0) >= 18 &&
+                (currentRegistrationAge?.years ?? 0) <= 100 && (
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Status Pernikahan *</label>
+                  <select
+                    required
+                    value={maritalStatus}
+                    onChange={(e) => setMaritalStatus(e.target.value as UserProfile['maritalStatus'] | '')}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Pilih status pernikahan</option>
+                    <option value="Belum menikah">Belum menikah</option>
+                    <option value="Sudah menikah">Sudah menikah</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-700">Usia (otomatis)</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={formatAge(getAgeParts(dateOfBirth)) || 'Usia dihitung dari tanggal lahir'}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs sm:text-sm text-gray-600"
+                />
               </div>
             </>
           )}

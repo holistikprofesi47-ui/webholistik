@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Plus,
@@ -32,7 +32,8 @@ import {
 } from 'lucide-react';
 import { ClinicalProgressNote, Appointment, UserProfile, Therapy } from '../types';
 import { formatIndonesianDate, getRegisteredPatients } from '../utils/storage';
-import { saveClinicalRecordToFirestore } from '../services/firebaseFirestore';
+import { getAllUserProfilesFromFirestore, saveClinicalRecordToFirestore } from '../services/firebaseFirestore';
+import { formatAge, getAgeParts, getGenderBadgeClass, getPatientDisplayName } from '../utils/patientDemographics';
 
 interface ClinicalProgressNotesManagerProps {
   progressNotes: ClinicalProgressNote[];
@@ -52,6 +53,7 @@ interface PatientGroup {
   patientPhone: string;
   patientEmail: string;
   patientId: string;
+  patient?: UserProfile;
   notes: ClinicalProgressNote[];
   totalVisits: number;
   latestVisitDate: string;
@@ -85,6 +87,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   const [detailNote, setDetailNote] = useState<ClinicalProgressNote | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<ClinicalProgressNote | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [cloudPatientProfiles, setCloudPatientProfiles] = useState<UserProfile[]>([]);
 
   // Form State
   const [formPatientId, setFormPatientId] = useState<string>('');
@@ -107,8 +110,44 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
 
   // Registered Patients List for seamless profile linkage
   const registeredPatientsList = useMemo(() => {
-    return getRegisteredPatients();
+    const profiles = getRegisteredPatients();
+    cloudPatientProfiles.forEach((cloudProfile) => {
+      const index = profiles.findIndex(
+        (profile) =>
+          profile.id === cloudProfile.id ||
+          (profile.email && cloudProfile.email && profile.email.toLowerCase() === cloudProfile.email.toLowerCase())
+      );
+      if (index >= 0) profiles[index] = { ...profiles[index], ...cloudProfile };
+      else profiles.push(cloudProfile);
+    });
+    return profiles;
+  }, [cloudPatientProfiles]);
+
+  useEffect(() => {
+    let active = true;
+    getAllUserProfilesFromFirestore().then((profiles) => {
+      if (active) setCloudPatientProfiles(profiles);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
+
+  const getProfileForNote = (note: ClinicalProgressNote): UserProfile | undefined => {
+    const matchedByIdentifier = registeredPatientsList.find((profile) =>
+      (note.patientId && profile.id === note.patientId) ||
+      (note.patientEmail && profile.email?.toLowerCase() === note.patientEmail.toLowerCase()) ||
+      (note.patientNumber && profile.patientNumber?.toLowerCase() === note.patientNumber.toLowerCase()) ||
+      (note.patientPhone && profile.phone?.replace(/\D/g, '') === note.patientPhone.replace(/\D/g, ''))
+    );
+    if (matchedByIdentifier) return matchedByIdentifier;
+
+    const matchingNames = registeredPatientsList.filter((profile) =>
+      profile.name.trim().replace(/^(Tn\.|Nn\.|Ny\.|An\.)\s*/i, '').toLowerCase() ===
+        note.patientName.trim().replace(/^(Tn\.|Nn\.|Ny\.|An\.)\s*/i, '').toLowerCase()
+    );
+    return matchingNames.length === 1 ? matchingNames[0] : undefined;
+  };
 
   // Unique list of patients for filter
   const patientOptions = useMemo(() => {
@@ -152,6 +191,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
 
     sorted.forEach((note) => {
       const key = (note.patientNumber || note.patientName).trim().toLowerCase();
+      const patient = getProfileForNote(note);
       
       if (!map.has(key)) {
         map.set(key, {
@@ -161,6 +201,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
           patientPhone: note.patientPhone || '',
           patientEmail: note.patientEmail || '',
           patientId: note.patientId || '',
+          patient,
           notes: [note],
           totalVisits: 1,
           latestVisitDate: note.visitDate,
@@ -179,6 +220,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         if (!group.patientPhone && note.patientPhone) group.patientPhone = note.patientPhone;
         if (!group.patientEmail && note.patientEmail) group.patientEmail = note.patientEmail;
         if (!group.patientId && note.patientId) group.patientId = note.patientId;
+        if (!group.patient && patient) group.patient = patient;
         if (!group.uniqueTherapies.includes(note.therapyName)) group.uniqueTherapies.push(note.therapyName);
         if (!group.uniqueNurses.includes(note.nurseName)) group.uniqueNurses.push(note.nurseName);
       }
@@ -193,7 +235,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
       }
       return g;
     });
-  }, [filteredNotes]);
+  }, [filteredNotes, registeredPatientsList]);
 
   // Expand all / collapse all handlers
   const handleToggleExpandPatient = (key: string) => {
@@ -463,6 +505,11 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     window.print();
   };
 
+  const detailPatient = detailNote ? getProfileForNote(detailNote) : undefined;
+  const detailPatientAge = detailPatient?.dateOfBirth
+    ? formatAge(getAgeParts(detailPatient.dateOfBirth))
+    : '';
+
   return (
     <div className="space-y-6">
       {/* Notification Toast */}
@@ -689,7 +736,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-black text-stone-900 text-base sm:text-lg">
-                          {group.patientName}
+                          {getPatientDisplayName(group.patientName, group.patient)}
                         </h3>
                         <span className="font-mono text-xs font-bold px-2.5 py-0.5 bg-white text-emerald-800 rounded-lg border border-emerald-200 shadow-2xs">
                           {group.patientNumber}
@@ -701,6 +748,16 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                       </div>
 
                       <div className="flex items-center gap-3 text-xs text-stone-500 flex-wrap">
+                        {group.patient?.gender && (
+                          <span className={`rounded-full border px-2 py-0.5 font-bold ${getGenderBadgeClass(group.patient.gender)}`}>
+                            {group.patient.gender}
+                          </span>
+                        )}
+                        {group.patient?.dateOfBirth && getAgeParts(group.patient.dateOfBirth) && (
+                          <span className="font-semibold text-stone-600">
+                            {formatAge(getAgeParts(group.patient.dateOfBirth))}
+                          </span>
+                        )}
                         {group.patientPhone && (
                           <span className="flex items-center gap-1 font-medium text-stone-600">
                             <Phone className="w-3 h-3 text-stone-400" />
@@ -937,8 +994,18 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="font-extrabold text-stone-900 text-sm sm:text-base">
-                        {note.patientName}
+                        {getPatientDisplayName(note.patientName, getProfileForNote(note))}
                       </h4>
+                      {getProfileForNote(note)?.gender && (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${getGenderBadgeClass(getProfileForNote(note)?.gender)}`}>
+                          {getProfileForNote(note)?.gender}
+                        </span>
+                      )}
+                      {getProfileForNote(note)?.dateOfBirth && (
+                        <span className="text-[11px] font-semibold text-stone-500">
+                          {formatAge(getAgeParts(getProfileForNote(note)!.dateOfBirth!))}
+                        </span>
+                      )}
                       <span className="font-mono text-[11px] font-bold px-2 py-0.5 bg-stone-100 text-stone-600 rounded-md border border-stone-200">
                         {note.patientNumber}
                       </span>
@@ -1124,7 +1191,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                       <optgroup label="👤 Dari Direktori Akun Pasien">
                         {registeredPatientsList.map((p) => (
                           <option key={`patient-${p.id || p.email}`} value={`patient:${p.id || p.email}`}>
-                            {p.name} (RM: {p.patientNumber || 'HNC'}) - {p.phone || p.email}
+                            {getPatientDisplayName(p.name, p)} (RM: {p.patientNumber || 'HNC'}) - {p.phone || p.email}
                           </option>
                         ))}
                       </optgroup>
@@ -1399,8 +1466,24 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
             <div className="bg-stone-50 rounded-2xl p-4 border border-stone-200 text-xs grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <span className="text-[10px] text-stone-400 block font-semibold uppercase">Nama Pasien:</span>
-                <span className="font-bold text-stone-900 text-sm">{detailNote.patientName}</span>
+                <span className="font-bold text-stone-900 text-sm">
+                  {getPatientDisplayName(detailNote.patientName, detailPatient)}
+                </span>
               </div>
+              {detailPatient?.gender && (
+                <div>
+                  <span className="text-[10px] text-stone-400 block font-semibold uppercase">Jenis Kelamin:</span>
+                  <span className={`inline-flex mt-1 rounded-full border px-2.5 py-1 font-bold ${getGenderBadgeClass(detailPatient.gender)}`}>
+                    {detailPatient.gender}
+                  </span>
+                </div>
+              )}
+              {detailPatientAge && (
+                <div>
+                  <span className="text-[10px] text-stone-400 block font-semibold uppercase">Usia:</span>
+                  <span className="font-semibold text-stone-800">{detailPatientAge}</span>
+                </div>
+              )}
               <div>
                 <span className="text-[10px] text-stone-400 block font-semibold uppercase">Nomor Rekam Medis (RM):</span>
                 <span className="font-mono font-bold text-stone-900">{detailNote.patientNumber}</span>
