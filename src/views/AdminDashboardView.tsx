@@ -74,6 +74,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [selectedPatientForProgressFilter, setSelectedPatientForProgressFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('Semua');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [dateFilter, setDateFilter] = useState<string>('');
+  const [selectedPatientProfile, setSelectedPatientProfile] = useState<Appointment | null>(null);
+  const [soapForm, setSoapForm] = useState({ s: '', o: '', a: '', p: '' });
   const [statusUpdateToast, setStatusUpdateToast] = useState<{ code: string; status: string } | null>(null);
   const [appointmentToDelete, setAppointmentToDelete] = useState<Appointment | null>(null);
   const [deleteToast, setDeleteToast] = useState<{ code: string; patientName: string } | null>(null);
@@ -124,14 +127,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const filteredAppointments = useMemo(() => {
     return appointments.filter((app) => {
       const matchStatus = statusFilter === 'Semua' || app.status === statusFilter;
+      const matchDate = !dateFilter || app.date === dateFilter;
       const matchSearch =
         app.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         app.therapyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         app.bookingCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        app.locationName.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchStatus && matchSearch;
+        app.locationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        app.patientNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchStatus && matchDate && matchSearch;
     });
-  }, [appointments, statusFilter, searchQuery]);
+  }, [appointments, statusFilter, searchQuery, dateFilter]);
 
   // Unique Patients from appointments
   const patientsList = useMemo(() => {
@@ -403,15 +408,34 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           {/* Controls: Search, Filter & CSV Export */}
           <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
             <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center flex-1">
-              <div className="relative flex-1 sm:max-w-xs">
+              <div className="relative flex-1 sm:max-w-md">
                 <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                  placeholder="Cari pasien, kode, atau terapi..."
+                  placeholder="Cari nama pasien, kode RM, atau jenis terapi..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-white border border-stone-200 rounded-xl pl-10 pr-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
+              </div>
+
+              <div className="flex items-center gap-2 bg-stone-50 px-3 py-2 border border-stone-200 rounded-xl text-[11px] text-stone-600">
+                <span className="font-bold text-stone-700">Filter Tanggal Terapi:</span>
+                <input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="bg-transparent text-stone-800 font-semibold focus:outline-none cursor-pointer"
+                />
+                {dateFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('')}
+                    className="text-stone-600 hover:text-stone-900 font-semibold"
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
@@ -441,7 +465,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <Download className="w-3.5 h-3.5" />
                 <span>Unduh Semua CSV ({appointments.length})</span>
               </button>
-              {(statusFilter !== 'Semua' || searchQuery.trim() !== '') && filteredAppointments.length > 0 && (
+              {(statusFilter !== 'Semua' || searchQuery.trim() !== '' || dateFilter) && filteredAppointments.length > 0 && (
                 <button
                   onClick={handleExportFilteredCSV}
                   className="bg-white hover:bg-stone-50 text-stone-700 font-semibold text-xs py-2 px-3 rounded-xl transition border border-stone-300 flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -506,11 +530,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <thead className="bg-stone-50 text-stone-500 font-bold uppercase text-[10px] border-b border-stone-200">
                   <tr>
                     <th className="py-3.5 px-4">Kode & Tanggal</th>
-                    <th className="py-3.5 px-4">Nama Pasien</th>
+                    <th className="py-3.5 px-4">Nama Pasien & Klasifikasi</th>
                     <th className="py-3.5 px-4">Terapi & Waktu</th>
-                    <th className="py-3.5 px-4">Lokasi Tindakan</th>
+                    <th className="py-3.5 px-4">Informed Consent (Nakes)</th>
                     <th className="py-3.5 px-4">Status</th>
-                    <th className="py-3.5 px-4 text-right">Ubah Status & Kelola</th>
+                    <th className="py-3.5 px-4 text-right">Kelola Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
@@ -525,17 +549,33 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="font-bold text-stone-900 block">{app.userName}</span>
-                        <span className="text-[11px] text-stone-500">{app.userPhone}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSoapForm({ s: '', o: '', a: '', p: '' });
+                            setSelectedPatientProfile(app);
+                          }}
+                          className="font-bold text-stone-900 block text-left hover:text-emerald-800 transition cursor-pointer"
+                        >
+                          {app.userName}
+                        </button>
+                        <span className="mt-1 block text-[11px] text-stone-500">
+                          RM: {app.patientNumber || '-'}
+                        </span>
                       </td>
                       <td className="py-3.5 px-4">
                         <span className="font-semibold text-emerald-900 block">{app.therapyName}</span>
                         <span className="text-[11px] bg-emerald-50 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
                           {app.timeSlot.includes('WIB') ? app.timeSlot : `${app.timeSlot} WIB`}
                         </span>
+                        <span className="mt-1 block text-[11px] text-stone-500 max-w-[180px] truncate">
+                          {app.locationName}
+                        </span>
                       </td>
-                      <td className="py-3.5 px-4 max-w-[200px] truncate">
-                        {app.locationName}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="inline-flex items-center rounded-full border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-600">
+                          Belum tersedia
+                        </span>
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -597,6 +637,154 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 Tidak ada data jadwal yang sesuai filter pencarian.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {selectedPatientProfile && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-stone-200 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-stone-900">Rekam Medis & Profil Klinis Pasien</h2>
+                <p className="text-xs text-stone-500">Catatan rahasia intervensi asuhan keperawatan holistik</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSoapForm({ s: '', o: '', a: '', p: '' });
+                  setSelectedPatientProfile(null);
+                }}
+                className="p-2 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-100"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+              <div>
+                <span className="text-stone-400 block mb-0.5">No. Rekam Medis</span>
+                <span className="font-bold text-emerald-700 font-mono">{selectedPatientProfile.patientNumber || 'RM-HNC-XXXX'}</span>
+              </div>
+              <div>
+                <span className="text-stone-400 block mb-0.5">Nama Lengkap</span>
+                <span className="font-bold text-stone-800">{selectedPatientProfile.userName}</span>
+              </div>
+              <div>
+                <span className="text-stone-400 block mb-0.5">Telepon</span>
+                <span className="font-semibold text-stone-700">{selectedPatientProfile.userPhone || '-'}</span>
+              </div>
+              <div>
+                <span className="text-stone-400 block mb-0.5">Status Jadwal</span>
+                <span className="font-medium text-stone-700">{selectedPatientProfile.status}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-stone-600 bg-emerald-50/60 p-3 rounded-xl border border-emerald-100 gap-3">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-emerald-600" />
+                <span>Tanggal Terapi: <strong className="text-stone-800">{formatIndonesianDate(selectedPatientProfile.date)}</strong></span>
+              </div>
+              <div className="bg-emerald-600 text-white px-2.5 py-1 rounded font-medium">
+                Profesi: Perawat Penanggung Jawab / Ners
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const now = new Date();
+                const note: ClinicalProgressNote = {
+                  id: `cpn-${now.getTime()}`,
+                  patientId: selectedPatientProfile.userId || selectedPatientProfile.patientNumber || selectedPatientProfile.id,
+                  patientName: selectedPatientProfile.userName,
+                  patientNumber: selectedPatientProfile.patientNumber || '',
+                  patientPhone: selectedPatientProfile.userPhone,
+                  patientEmail: selectedPatientProfile.userEmail,
+                  appointmentId: selectedPatientProfile.id,
+                  bookingCode: selectedPatientProfile.bookingCode,
+                  therapyName: selectedPatientProfile.therapyName,
+                  visitDate: selectedPatientProfile.date,
+                  chiefComplaint: soapForm.s.trim(),
+                  assessment: `O: ${soapForm.o.trim()}\nA: ${soapForm.a.trim()}`,
+                  intervention: selectedPatientProfile.therapyName,
+                  progressFollowUp: `P: ${soapForm.p.trim()}`,
+                  nurseName: 'Ns. Staf Keperawatan Komplementer, S.Kep.',
+                  createdAt: now.toISOString()
+                };
+                onAddProgressNote(note);
+                setSoapForm({ s: '', o: '', a: '', p: '' });
+                setSelectedPatientProfile(null);
+              }}
+              className="space-y-4"
+            >
+              <h3 className="text-sm font-bold text-stone-800 border-l-4 border-emerald-600 pl-2">Dokumentasi Asuhan Keperawatan (SOAP)</h3>
+              <div className="grid grid-cols-1 gap-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-stone-700 mb-1">S (Subjective) - Keluhan Pasien</label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={soapForm.s}
+                    onChange={(e) => setSoapForm((prev) => ({ ...prev, s: e.target.value }))}
+                    placeholder="Contoh: Nyeri punggung bawah berkurang setelah bekam kering..."
+                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-stone-700 mb-1">O (Objective) - Pemeriksaan Fisik & TTV</label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={soapForm.o}
+                    onChange={(e) => setSoapForm((prev) => ({ ...prev, o: e.target.value }))}
+                    placeholder="Contoh: TD: 120/80 mmHg, Nadi: 80x/menit, Suhu: 36.5°C..."
+                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-stone-700 mb-1">A (Assessment) - Analisis / Penilaian Klinis</label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={soapForm.a}
+                    onChange={(e) => setSoapForm((prev) => ({ ...prev, a: e.target.value }))}
+                    placeholder="Contoh: Hambatan mobilitas fisik berhubungan dengan nyeri otot punggung..."
+                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-stone-700 mb-1">P (Plan) - Rencana Tindakan & Edukasi</label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={soapForm.p}
+                    onChange={(e) => setSoapForm((prev) => ({ ...prev, p: e.target.value }))}
+                    placeholder="Contoh: Lanjutkan terapi komplementer sesi ke-2, anjurkan peregangan ringan..."
+                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSoapForm({ s: '', o: '', a: '', p: '' });
+                    setSelectedPatientProfile(null);
+                  }}
+                  className="px-4 py-2 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700"
+                >
+                  Simpan Catatan SOAP
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
