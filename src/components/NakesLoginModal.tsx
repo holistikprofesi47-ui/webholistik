@@ -11,6 +11,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { googleSignIn } from '../services/firebaseAuth';
+import { safeStorage } from '../utils/storage';
 
 interface NakesLoginModalProps {
   isOpen: boolean;
@@ -58,8 +59,8 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
     try {
       const result = await googleSignIn();
       if (result) {
-        localStorage.setItem('hnc_nakes_authenticated', 'true');
-        localStorage.setItem('hnc_nakes_user', result.user.email || ADMIN_EMAIL);
+        safeStorage.set('hnc_nakes_authenticated', 'true');
+        safeStorage.set('hnc_nakes_user', result.user.email || ADMIN_EMAIL);
         if (onGoogleAuthSuccess) {
           onGoogleAuthSuccess(result.user, result.accessToken);
         }
@@ -112,8 +113,8 @@ export const NakesLoginModal: React.FC<NakesLoginModalProps> = ({
         AUTHORIZED_ADMIN_HASHES.includes(hashedInput);
 
       if (isPassValid) {
-        localStorage.setItem('hnc_nakes_authenticated', 'true');
-        localStorage.setItem('hnc_nakes_user', ADMIN_EMAIL);
+        safeStorage.set('hnc_nakes_authenticated', 'true');
+        safeStorage.set('hnc_nakes_user', ADMIN_EMAIL);
         setIsLoading(false);
         onLoginSuccess();
         onClose();

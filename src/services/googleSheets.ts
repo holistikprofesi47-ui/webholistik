@@ -1,4 +1,5 @@
 import { Appointment } from '../types';
+import { safeStorage } from '../utils/storage';
 
 export const DEFAULT_SPREADSHEET_ID = '1-21GweMGL6X0YcqEKB-PxfKuvGoahP2Sr_qoBhgSppw';
 export const SPREADSHEET_URL = `https://docs.google.com/spreadsheets/d/${DEFAULT_SPREADSHEET_ID}/edit`;
@@ -244,9 +245,7 @@ export async function triggerRealtimeSheetSync(
   appointments: Appointment[],
   debounceMs: number = 250
 ): Promise<void> {
-  const token =
-    accessToken ||
-    (typeof window !== 'undefined' ? localStorage.getItem('hnc_google_access_token') : null);
+  const token = accessToken || safeStorage.get('hnc_google_access_token');
 
   if (!token) return;
 

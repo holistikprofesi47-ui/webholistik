@@ -1,6 +1,42 @@
 import { Appointment, Therapy, Video, UserProfile, LocationItem, ClinicalProgressNote } from '../types';
 import { INITIAL_APPOINTMENTS, INITIAL_LOCATIONS, INITIAL_THERAPIES, INITIAL_USER, INITIAL_VIDEOS, INITIAL_PROGRESS_NOTES } from '../data/mockData';
 
+const hasLocalStorage = (): boolean => {
+  try {
+    return typeof window !== 'undefined' && !!window.localStorage;
+  } catch (e) {
+    return false;
+  }
+};
+
+export const safeStorage = {
+  get: (key: string): string | null => {
+    if (!hasLocalStorage()) return null;
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      console.warn(`Unable to read storage key: ${key}`, e);
+      return null;
+    }
+  },
+  set: (key: string, value: string): void => {
+    if (!hasLocalStorage()) return;
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn(`Unable to write storage key: ${key}`, e);
+    }
+  },
+  remove: (key: string): void => {
+    if (!hasLocalStorage()) return;
+    try {
+      window.localStorage.removeItem(key);
+    } catch (e) {
+      console.warn(`Unable to remove storage key: ${key}`, e);
+    }
+  }
+};
+
 const STORAGE_KEYS = {
   APPOINTMENTS: 'hnc_appointments_v1',
   THERAPIES: 'hnc_therapies_v1',
@@ -14,7 +50,7 @@ const STORAGE_KEYS = {
 
 export const getStoredAppointments = (): Appointment[] => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.APPOINTMENTS);
+    const data = safeStorage.get(STORAGE_KEYS.APPOINTMENTS);
     if (data) return JSON.parse(data);
   } catch (e) {
     console.error('Failed to load appointments from localStorage', e);
@@ -24,7 +60,7 @@ export const getStoredAppointments = (): Appointment[] => {
 
 export const saveAppointments = (appointments: Appointment[]) => {
   try {
-    localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(appointments));
+    safeStorage.set(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(appointments));
   } catch (e) {
     console.error('Failed to save appointments', e);
   }
@@ -66,7 +102,7 @@ export const filterUserAppointments = (appointments: Appointment[], user: UserPr
 
 export const getRegisteredPatients = (): UserProfile[] => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.REGISTERED_PATIENTS);
+    const data = safeStorage.get(STORAGE_KEYS.REGISTERED_PATIENTS);
     if (data) return JSON.parse(data);
   } catch (e) {
     console.error('Failed to load registered patients', e);
@@ -88,7 +124,7 @@ export const saveRegisteredPatient = (patient: UserProfile): UserProfile => {
     } else {
       updatedList = [...patients, patient];
     }
-    localStorage.setItem(STORAGE_KEYS.REGISTERED_PATIENTS, JSON.stringify(updatedList));
+    safeStorage.set(STORAGE_KEYS.REGISTERED_PATIENTS, JSON.stringify(updatedList));
   } catch (e) {
     console.error('Failed to save registered patient', e);
   }
@@ -102,7 +138,7 @@ export const removeRegisteredPatient = (patientIdOrEmail: string): UserProfile[]
     const updatedList = patients.filter(
       p => p.id !== patientIdOrEmail && (!p.email || p.email.toLowerCase() !== target)
     );
-    localStorage.setItem(STORAGE_KEYS.REGISTERED_PATIENTS, JSON.stringify(updatedList));
+    safeStorage.set(STORAGE_KEYS.REGISTERED_PATIENTS, JSON.stringify(updatedList));
     return updatedList;
   } catch (e) {
     console.error('Failed to remove registered patient', e);
@@ -127,7 +163,7 @@ export const createGuestPatient = (): UserProfile => {
 
 export const getStoredUser = (): UserProfile => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.USER);
+    const data = safeStorage.get(STORAGE_KEYS.USER);
     if (data) {
       const parsed = JSON.parse(data);
       if (parsed) {
@@ -154,7 +190,7 @@ export const getStoredUser = (): UserProfile => {
 
 export const saveUser = (user: UserProfile) => {
   try {
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+    safeStorage.set(STORAGE_KEYS.USER, JSON.stringify(user));
     if (!user.isGuest) {
       saveRegisteredPatient(user);
     }
@@ -165,7 +201,7 @@ export const saveUser = (user: UserProfile) => {
 
 export const clearUserSession = (): UserProfile => {
   try {
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    safeStorage.remove(STORAGE_KEYS.USER);
   } catch (e) {
     console.error('Failed to clear user session', e);
   }
@@ -187,7 +223,7 @@ export const generatePatientNumber = (): string => {
 
 export const getStoredTherapies = (): Therapy[] => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.THERAPIES);
+    const data = safeStorage.get(STORAGE_KEYS.THERAPIES);
     if (data) {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -213,7 +249,7 @@ export const getStoredTherapies = (): Therapy[] => {
 
 export const saveTherapies = (therapies: Therapy[]) => {
   try {
-    localStorage.setItem(STORAGE_KEYS.THERAPIES, JSON.stringify(therapies));
+    safeStorage.set(STORAGE_KEYS.THERAPIES, JSON.stringify(therapies));
   } catch (e) {
     console.error('Failed to save therapies', e);
   }
@@ -221,7 +257,7 @@ export const saveTherapies = (therapies: Therapy[]) => {
 
 export const getStoredVideos = (): Video[] => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.VIDEOS);
+    const data = safeStorage.get(STORAGE_KEYS.VIDEOS);
     if (data) return JSON.parse(data);
   } catch (e) {
     console.error('Failed to load videos', e);
@@ -231,7 +267,7 @@ export const getStoredVideos = (): Video[] => {
 
 export const saveVideos = (videos: Video[]) => {
   try {
-    localStorage.setItem(STORAGE_KEYS.VIDEOS, JSON.stringify(videos));
+    safeStorage.set(STORAGE_KEYS.VIDEOS, JSON.stringify(videos));
   } catch (e) {
     console.error('Failed to save videos', e);
   }
@@ -239,7 +275,7 @@ export const saveVideos = (videos: Video[]) => {
 
 export const getStoredLocations = (): LocationItem[] => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
+    const data = safeStorage.get(STORAGE_KEYS.LOCATIONS);
     if (data) {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -266,7 +302,7 @@ export const getStoredLocations = (): LocationItem[] => {
 
 export const hasSeenOnboarding = (): boolean => {
   try {
-    return localStorage.getItem(STORAGE_KEYS.ONBOARDED) === 'true';
+    return safeStorage.get(STORAGE_KEYS.ONBOARDED) === 'true';
   } catch (e) {
     return false;
   }
@@ -274,7 +310,7 @@ export const hasSeenOnboarding = (): boolean => {
 
 export const setOnboardingSeen = () => {
   try {
-    localStorage.setItem(STORAGE_KEYS.ONBOARDED, 'true');
+    safeStorage.set(STORAGE_KEYS.ONBOARDED, 'true');
   } catch (e) {
     console.error('Failed to set onboarding', e);
   }
@@ -305,7 +341,7 @@ export const formatIndonesianDate = (dateStr: string): string => {
 
 export const getStoredProgressNotes = (): ClinicalProgressNote[] => {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.PROGRESS_NOTES);
+    const data = safeStorage.get(STORAGE_KEYS.PROGRESS_NOTES);
     if (data) return JSON.parse(data);
   } catch (e) {
     console.error('Failed to load progress notes from localStorage', e);
@@ -315,7 +351,7 @@ export const getStoredProgressNotes = (): ClinicalProgressNote[] => {
 
 export const saveProgressNotes = (notes: ClinicalProgressNote[]) => {
   try {
-    localStorage.setItem(STORAGE_KEYS.PROGRESS_NOTES, JSON.stringify(notes));
+    safeStorage.set(STORAGE_KEYS.PROGRESS_NOTES, JSON.stringify(notes));
   } catch (e) {
     console.error('Failed to save progress notes', e);
   }

@@ -22,6 +22,7 @@ import { generateBookingCode, getIndonesianDayName, formatIndonesianDate } from 
 import { appendAppointmentToSheet } from '../services/googleSheets';
 import { saveAppointmentToFirestore } from '../services/firebaseFirestore';
 import { saveAppointmentToRTDB } from '../services/firebaseRealtime';
+import { safeStorage } from '../utils/storage';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -305,7 +306,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       setStep(6);
 
       // Sync ke Google Spreadsheet jika token tersedia
-      const activeToken = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('hnc_google_access_token') : null);
+      const activeToken = accessToken || safeStorage.get('hnc_google_access_token');
       if (activeToken) {
         try {
           await appendAppointmentToSheet(activeToken, newAppointment);

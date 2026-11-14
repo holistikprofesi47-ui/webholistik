@@ -24,6 +24,7 @@ import { AdminDashboardView } from './views/AdminDashboardView';
 
 import { ActiveTab, Therapy, Video, Appointment, UserProfile, AppointmentStatus, ClinicalProgressNote } from './types';
 import { initAuth, logoutGoogle, getAccessToken } from './services/firebaseAuth';
+import { safeStorage } from './utils/storage';
 import { appendAppointmentToSheet, triggerRealtimeSheetSync } from './services/googleSheets';
 import {
   saveAppointmentToFirestore,
@@ -55,14 +56,14 @@ export default function App() {
   // Navigation & View States
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
-    return localStorage.getItem('hnc_nakes_authenticated') === 'true';
+    return safeStorage.get('hnc_nakes_authenticated') === 'true';
   });
   const [showNakesLoginModal, setShowNakesLoginModal] = useState<boolean>(false);
 
   // Google OAuth & Sheets State
   const [googleUser, setGoogleUser] = useState<any | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('hnc_google_access_token') : null;
+    return safeStorage.get('hnc_google_access_token');
   });
 
   // Core Data States
@@ -95,7 +96,7 @@ export default function App() {
           setAppointments(firestoreAppointments);
           saveAppointments(firestoreAppointments);
 
-          const activeToken = accessToken || localStorage.getItem('hnc_google_access_token');
+          const activeToken = accessToken || safeStorage.get('hnc_google_access_token');
           if (activeToken) {
             triggerRealtimeSheetSync(activeToken, firestoreAppointments, 500);
           }
@@ -115,7 +116,7 @@ export default function App() {
 
   // Nakes Mode authentication handlers
   const handleRequestNakesAccess = () => {
-    const isAuthenticated = localStorage.getItem('hnc_nakes_authenticated') === 'true';
+    const isAuthenticated = safeStorage.get('hnc_nakes_authenticated') === 'true';
     if (isAuthenticated) {
       handleNakesLoginSuccess();
     } else {
@@ -144,8 +145,8 @@ export default function App() {
   };
 
   const handleExitNakesMode = async () => {
-    localStorage.removeItem('hnc_nakes_authenticated');
-    localStorage.removeItem('hnc_nakes_user');
+    safeStorage.remove('hnc_nakes_authenticated');
+    safeStorage.remove('hnc_nakes_user');
     setIsAdmin(false);
 
     try {
@@ -242,8 +243,7 @@ export default function App() {
     saveAppointments(updated);
 
     const activeToken =
-      accessToken ||
-      (typeof window !== 'undefined' ? localStorage.getItem('hnc_google_access_token') : null);
+      accessToken || safeStorage.get('hnc_google_access_token');
     if (activeToken) {
       triggerRealtimeSheetSync(activeToken, updated, 250);
     }
@@ -306,7 +306,7 @@ export default function App() {
       console.warn('Firestore sync error post-booking:', e);
     }
 
-    const activeToken = accessToken || (await getAccessToken()) || localStorage.getItem('hnc_google_access_token');
+    const activeToken = accessToken || (await getAccessToken()) || safeStorage.get('hnc_google_access_token');
     if (activeToken) {
       try {
         await appendAppointmentToSheet(activeToken, newAppointment);

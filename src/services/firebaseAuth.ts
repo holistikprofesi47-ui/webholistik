@@ -9,6 +9,7 @@ import {
   signInWithEmailAndPassword
 } from 'firebase/auth';
 import { auth } from '../firebase';
+import { safeStorage } from '../utils/storage';
 export { auth };
 
 export const registerWithEmailPassword = async (email: string, password: string): Promise<User> => {
@@ -29,7 +30,7 @@ const provider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => provider.addScope(scope));
 
 let isSigningIn = false;
-let cachedAccessToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('hnc_google_access_token') : null;
+let cachedAccessToken: string | null = safeStorage.get('hnc_google_access_token');
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
@@ -37,7 +38,7 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      const token = cachedAccessToken || localStorage.getItem('hnc_google_access_token');
+      const token = cachedAccessToken || safeStorage.get('hnc_google_access_token');
       if (token && onAuthSuccess) {
         cachedAccessToken = token;
         onAuthSuccess(user, token);
@@ -46,7 +47,7 @@ export const initAuth = (
       }
     } else if (!isSigningIn) {
       cachedAccessToken = null;
-      localStorage.removeItem('hnc_google_access_token');
+      safeStorage.remove('hnc_google_access_token');
       if (onAuthFailure) onAuthFailure();
       try {
         await signInAnonymously(auth);
@@ -67,7 +68,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
-    localStorage.setItem('hnc_google_access_token', credential.accessToken);
+    safeStorage.set('hnc_google_access_token', credential.accessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Sign in error:', error);
@@ -78,15 +79,13 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken || (typeof window !== 'undefined' ? localStorage.getItem('hnc_google_access_token') : null);
+  return cachedAccessToken || safeStorage.get('hnc_google_access_token');
 };
 
 export const logoutGoogle = async () => {
   await signOut(auth);
   cachedAccessToken = null;
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('hnc_google_access_token');
-  }
+  safeStorage.remove('hnc_google_access_token');
 };
 
 export function getFriendlyErrorMessage(
