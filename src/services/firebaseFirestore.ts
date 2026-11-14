@@ -14,7 +14,7 @@ import {
 import { auth, getFriendlyErrorMessage } from './firebaseAuth';
 import { db } from '../firebase';
 export { db };
-import { UserProfile, Appointment, ClinicalProgressNote } from '../types';
+import { UserProfile, Appointment, ClinicalProgressNote, NurseClinicalRecord } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -97,6 +97,7 @@ export async function saveUserProfileToFirestore(profile: UserProfile): Promise<
       dateOfBirth: profile.dateOfBirth || '',
       gender: profile.gender || '',
       maritalStatus: profile.maritalStatus || '',
+      occupation: profile.occupation || '',
       address: profile.address || '',
       emergencyContact: profile.emergencyContact || '',
       medicalNotes: profile.medicalNotes || '',
@@ -198,6 +199,29 @@ export async function saveAppointmentToFirestore(appointment: Appointment): Prom
     } else {
       console.info('Appointment save queued in Firestore local cache.');
     }
+  }
+}
+
+export async function saveAppointmentScreening(
+  appointmentId: string,
+  screening: NonNullable<Appointment['contraindicationScreening']>,
+  safe: boolean,
+  nurseName: string,
+  assessedAt: string
+): Promise<void> {
+  const path = `appointments/${appointmentId}`;
+  try {
+    await updateDoc(doc(db, 'appointments', appointmentId), {
+      contraindicationScreening: screening,
+      contraindicationSafe: safe,
+      contraindicationAssessedBy: nurseName,
+      contraindicationAssessedAt: assessedAt,
+      status: safe ? 'Terjadwal' : 'Menunggu',
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }
 
@@ -329,6 +353,7 @@ export interface PatientRegistrationRecord {
   dateOfBirth: string;
   gender: UserProfile['gender'];
   maritalStatus?: UserProfile['maritalStatus'];
+  occupation?: string;
   attendanceStatus?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -346,6 +371,7 @@ export async function saveRegistrationToFirestore(reg: PatientRegistrationRecord
       dateOfBirth: reg.dateOfBirth,
       gender: reg.gender,
       maritalStatus: reg.maritalStatus || '',
+      occupation: reg.occupation || '',
       attendanceStatus: reg.attendanceStatus || 'Belum Hadir',
       createdAt: reg.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -360,7 +386,39 @@ export async function saveRegistrationToFirestore(reg: PatientRegistrationRecord
   }
 }
 
-// ================= CLINICAL RECORDS (Mode Terapis / Rekam Medis) =================
+// ================= PRIVATE NURSE CLINICAL RECORDS =================
+
+export async function saveNurseClinicalRecord(record: Omit<NurseClinicalRecord, 'id'>): Promise<void> {
+  const path = 'nurse_clinical_records';
+  const docRef = await addDoc(collection(db, path), record);
+  if (!docRef.id) throw new Error('Catatan klinis perawat gagal memperoleh ID dokumen.');
+}
+
+export function subscribeNurseClinicalRecords(
+  patientId: string,
+  onUpdate: (records: NurseClinicalRecord[]) => void,
+  onError?: (error: Error) => void
+) {
+  const path = 'nurse_clinical_records';
+  const recordsQuery = query(collection(db, path), where('patientId', '==', patientId));
+  return onSnapshot(
+    recordsQuery,
+    (snapshot) => {
+      const records = snapshot.docs.map((record) => ({
+        ...record.data(),
+        id: record.id
+      } as NurseClinicalRecord));
+      records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      onUpdate(records);
+    },
+    (error) => {
+      console.warn('Private nurse clinical records listener failed:', error);
+      onError?.(error);
+    }
+  );
+}
+
+// ================= CLINICAL RECORDS (Legacy therapist records) =================
 
 export interface ClinicalRecordData {
   patientId: string;

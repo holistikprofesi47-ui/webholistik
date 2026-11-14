@@ -162,19 +162,24 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   const filteredNotes = useMemo(() => {
     return progressNotes.filter(note => {
       const matchPatient = selectedPatientFilter === 'Semua' || note.patientName === selectedPatientFilter;
-      const query = searchQuery.toLowerCase();
-      const matchSearch =
-        note.patientName.toLowerCase().includes(query) ||
-        note.patientNumber.toLowerCase().includes(query) ||
-        note.therapyName.toLowerCase().includes(query) ||
-        note.chiefComplaint.toLowerCase().includes(query) ||
-        note.assessment.toLowerCase().includes(query) ||
-        note.intervention.toLowerCase().includes(query) ||
-        note.progressFollowUp.toLowerCase().includes(query) ||
-        note.nurseName.toLowerCase().includes(query) ||
-        (note.bookingCode && note.bookingCode.toLowerCase().includes(query)) ||
-        (note.patientPhone && note.patientPhone.includes(query)) ||
-        (note.patientEmail && note.patientEmail.toLowerCase().includes(query));
+      const query = searchQuery.trim().toLocaleLowerCase('id');
+      const searchableText = [
+        note.patientName,
+        note.patientNumber,
+        note.chiefComplaint,
+        note.therapyName,
+        note.assessment,
+        note.intervention,
+        note.progressFollowUp,
+        note.nurseName,
+        note.bookingCode,
+        note.patientPhone,
+        note.patientEmail
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('id');
+      const matchSearch = !query || searchableText.includes(query);
 
       return matchPatient && matchSearch;
     });
@@ -190,7 +195,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     );
 
     sorted.forEach((note) => {
-      const key = (note.patientNumber || note.patientName).trim().toLowerCase();
+      const key = (note.patientNumber || note.patientName || '').trim().toLowerCase();
       const patient = getProfileForNote(note);
       
       if (!map.has(key)) {

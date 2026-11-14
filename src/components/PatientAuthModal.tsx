@@ -29,6 +29,7 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [gender, setGender] = useState<UserProfile['gender'] | ''>('');
   const [maritalStatus, setMaritalStatus] = useState<UserProfile['maritalStatus'] | ''>('');
+  const [occupation, setOccupation] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -42,6 +43,7 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
     setDateOfBirth('');
     setGender('');
     setMaritalStatus('');
+    setOccupation('');
     setError('');
   };
 
@@ -147,6 +149,7 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           dateOfBirth: foundPatient.dateOfBirth || foundPatient.birthDate || '',
           gender: foundPatient.gender,
           maritalStatus: foundPatient.maritalStatus,
+          occupation: foundPatient.occupation || '',
           patientNumber: foundPatient.no_rm || foundPatient.patientNumber || generatePatientNumber(),
           address: foundPatient.address || foundPatient.alamat || 'Semarang',
           emergencyContact: foundPatient.emergencyContact || foundPatient.emergency_contact || '-',
@@ -193,13 +196,13 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           setLoading(false);
           return;
         }
-        if (
-          gender === 'Perempuan' &&
-          registrationAge.years >= 18 &&
-          registrationAge.years <= 100 &&
-          !maritalStatus
-        ) {
+        if (!maritalStatus) {
           setError('Mohon pilih status pernikahan pasien.');
+          setLoading(false);
+          return;
+        }
+        if (!occupation.trim()) {
+          setError('Mohon isi pekerjaan pasien.');
           setLoading(false);
           return;
         }
@@ -238,7 +241,8 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           phone: cleanPhone,
           dateOfBirth,
           gender,
-          maritalStatus: gender === 'Perempuan' ? maritalStatus : undefined,
+          maritalStatus,
+          occupation: occupation.trim(),
           patientNumber: generatedRM,
           address: 'Semarang',
           emergencyContact: '-',
@@ -256,6 +260,7 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           dateOfBirth,
           gender,
           maritalStatus: patientProfile.maritalStatus,
+          occupation: patientProfile.occupation,
           attendanceStatus: 'Belum Hadir',
           createdAt: new Date().toISOString()
         });
@@ -377,7 +382,6 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
                     onChange={(e) => {
                       const value = e.target.value as UserProfile['gender'] | '';
                       setGender(value);
-                      if (value !== 'Perempuan') setMaritalStatus('');
                     }}
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   >
@@ -388,23 +392,33 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
                 </div>
               </div>
 
-              {gender === 'Perempuan' &&
-                (currentRegistrationAge?.years ?? 0) >= 18 &&
-                (currentRegistrationAge?.years ?? 0) <= 100 && (
+              {currentRegistrationAge && (
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-gray-700">Status Pernikahan *</label>
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Status Perkawinan *</label>
                   <select
                     required
                     value={maritalStatus}
                     onChange={(e) => setMaritalStatus(e.target.value as UserProfile['maritalStatus'] | '')}
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   >
-                    <option value="">Pilih status pernikahan</option>
+                    <option value="">Pilih status perkawinan</option>
                     <option value="Belum menikah">Belum menikah</option>
                     <option value="Sudah menikah">Sudah menikah</option>
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-700">Pekerjaan Pasien *</label>
+                <input
+                  type="text"
+                  required
+                  value={occupation}
+                  onChange={(e) => setOccupation(e.target.value)}
+                  placeholder="Contoh: Mahasiswa, Guru, Wiraswasta"
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-xs sm:text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-gray-700">Usia (otomatis)</label>

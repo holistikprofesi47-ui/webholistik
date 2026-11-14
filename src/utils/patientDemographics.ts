@@ -65,9 +65,12 @@ export const formatAge = (age: AgeParts | null): string => {
   return `${age.years} tahun, ${age.months} bulan, ${age.days} hari`;
 };
 
-export const getPatientDisplayName = (name: string, patient?: UserProfile | null): string => {
+export const getPatientDisplayName = (
+  name: string,
+  patient?: Pick<UserProfile, 'dateOfBirth' | 'gender' | 'maritalStatus'> | null
+): string => {
   const cleanName = name.trim().replace(/^(Tn\.|Nn\.|Ny\.|An\.)\s*/i, '');
-  if (!patient?.dateOfBirth || !patient.gender) return name;
+  if (!patient?.dateOfBirth) return name;
 
   const age = getAgeParts(patient.dateOfBirth);
   if (!age || age.years > 100) return name;
@@ -78,8 +81,9 @@ export const getPatientDisplayName = (name: string, patient?: UserProfile | null
   } else if (patient.gender === 'Laki-laki') {
     title = 'Tn.';
   } else if (patient.gender === 'Perempuan') {
-    if (patient.maritalStatus === 'Sudah menikah') title = 'Ny.';
-    if (patient.maritalStatus === 'Belum menikah') title = 'Nn.';
+    const maritalStatus = patient.maritalStatus?.toLowerCase();
+    if (maritalStatus === 'sudah menikah' || maritalStatus === 'menikah') title = 'Ny.';
+    if (maritalStatus === 'belum menikah') title = 'Nn.';
   }
 
   return title ? `${title} ${cleanName}` : name;

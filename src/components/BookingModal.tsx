@@ -67,6 +67,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const [patientNumber, setPatientNumber] = useState<string>('');
   const [patientPhone, setPatientPhone] = useState<string>('');
   const [patientEmail, setPatientEmail] = useState<string>('');
+  const [maritalStatus, setMaritalStatus] = useState<UserProfile['maritalStatus'] | ''>('');
+  const [occupation, setOccupation] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
 
   // Validation error state
@@ -100,6 +102,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       setPatientNumber(currentUser.patientNumber || '');
       setPatientPhone(currentUser.phone || '');
       setPatientEmail(currentUser.email || '');
+      setMaritalStatus(currentUser.maritalStatus || '');
+      setOccupation(currentUser.occupation || '');
       setNotes('');
       setErrorMessage('');
       setCreatedAppointment(null);
@@ -236,6 +240,14 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         setErrorMessage('Nomor telepon / WhatsApp wajib diisi.');
         return;
       }
+      if (!maritalStatus) {
+        setErrorMessage('Status perkawinan pasien wajib dipilih.');
+        return;
+      }
+      if (!occupation.trim()) {
+        setErrorMessage('Pekerjaan pasien wajib diisi.');
+        return;
+      }
       setStep(5);
     }
   };
@@ -276,6 +288,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         userEmail: (patientEmail.trim() || currentUser.email || '').toLowerCase(),
         userPhone: patientPhone.trim(),
         patientNumber: patientNumber.trim() || 'HNC-PASIEN-' + Math.floor(100000 + Math.random() * 900000),
+        dateOfBirth: currentUser.dateOfBirth || '',
+        gender: currentUser.gender,
+        maritalStatus,
+        occupation: occupation.trim(),
         therapyId: selectedTherapy.id,
         therapyName: selectedTherapy.name,
         locationId: selectedLocation.id,
@@ -284,7 +300,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         dayName: dayName,
         timeSlot: cleanTime,
         notes: notes.trim(),
-        status: 'Terjadwal',
+        status: 'Menunggu',
         createdAt: new Date().toISOString()
       };
 
@@ -731,6 +747,37 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-stone-700 block mb-1">
+                    Status Perkawinan *
+                  </label>
+                  <select
+                    required
+                    value={maritalStatus}
+                    onChange={(e) => setMaritalStatus(e.target.value as UserProfile['maritalStatus'] | '')}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  >
+                    <option value="">Pilih status</option>
+                    <option value="Sudah menikah">Menikah</option>
+                    <option value="Belum menikah">Belum Menikah</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-700 block mb-1">
+                    Pekerjaan Pasien *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={occupation}
+                    onChange={(e) => setOccupation(e.target.value)}
+                    placeholder="Mahasiswa, Guru, Wiraswasta"
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-stone-700 block mb-1">
                   Catatan Tambahan (Opsional)
@@ -813,7 +860,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   Jadwal Berhasil Dibuat!
                 </h3>
                 <p className="text-xs text-emerald-800 font-medium mt-1">
-                  Permintaan jadwal Anda telah tercatat dalam sistem Holistic Nursing Care.
+                  Jadwal tercatat dan menunggu skrining kontraindikasi oleh perawat sebelum disetujui.
                 </p>
               </div>
 

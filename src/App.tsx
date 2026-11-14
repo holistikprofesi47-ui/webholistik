@@ -28,6 +28,7 @@ import { safeStorage } from './utils/storage';
 import { appendAppointmentToSheet, triggerRealtimeSheetSync } from './services/googleSheets';
 import {
   saveAppointmentToFirestore,
+  saveAppointmentScreening,
   deleteAppointmentFromFirestore,
   subscribeAppointments,
   subscribeProgressNotes,
@@ -125,13 +126,6 @@ export default function App() {
   };
 
   const handleNakesLoginSuccess = async () => {
-    try {
-      await logoutGoogle();
-    } catch (e) {
-      console.warn('Google logout during Nakes login:', e);
-    }
-    setGoogleUser(null);
-    setAccessToken(null);
     const guestUser = clearUserSession();
     setUser(guestUser);
     setSelectedAppointmentForDetail(null);
@@ -367,6 +361,32 @@ export default function App() {
     }
   };
 
+  const handleCompleteScreening = async (
+    appointmentId: string,
+    screening: NonNullable<Appointment['contraindicationScreening']>,
+    safe: boolean,
+    nurseName: string,
+    assessedAt: string
+  ) => {
+    const currentAppointment = appointments.find((appointment) => appointment.id === appointmentId);
+    if (!currentAppointment) throw new Error('Jadwal tidak ditemukan. Muat ulang daftar jadwal lalu coba lagi.');
+
+    await saveAppointmentScreening(appointmentId, screening, safe, nurseName, assessedAt);
+    const updatedAppointment: Appointment = {
+      ...currentAppointment,
+      contraindicationScreening: screening,
+      contraindicationSafe: safe,
+      contraindicationAssessedBy: nurseName,
+      contraindicationAssessedAt: assessedAt,
+      status: safe ? 'Terjadwal' : 'Menunggu'
+    };
+    handleAppointmentsChange(
+      appointments.map((appointment) =>
+        appointment.id === appointmentId ? updatedAppointment : appointment
+      )
+    );
+  };
+
   const handleDeleteAppointment = async (id: string) => {
     const updated = appointments.filter((app) => app.id !== id);
     handleAppointmentsChange(updated);
@@ -533,6 +553,7 @@ export default function App() {
             onGoogleLogout={handleGoogleLogout}
             onExitNakesMode={handleExitNakesMode}
             onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+            onCompleteScreening={handleCompleteScreening}
             onDeleteAppointment={handleDeleteAppointment}
             onAddTherapy={handleAddTherapy}
             onDeleteTherapy={handleDeleteTherapy}
@@ -576,6 +597,7 @@ export default function App() {
         isOpen={showNakesLoginModal}
         onClose={() => setShowNakesLoginModal(false)}
         onLoginSuccess={handleNakesLoginSuccess}
+        onGoogleAuthSuccess={handleGoogleAuthSuccess}
       />
       <OnboardingModal
         isOpen={showOnboarding}

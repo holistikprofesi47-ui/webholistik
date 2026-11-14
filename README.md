@@ -91,7 +91,16 @@ Aplikasi ini bertipe **Modern Frontend SPA (Single Page Application)** dengan ar
    - Departemen Ilmu Keperawatan & SMPIT Cahaya Ummat: 08.00 – 15.30 WIB.
    - Dipocare Universitas Diponegoro: 08.00 – 20.30 WIB.
 3. **Rekam Medis & Asuhan Keperawatan**:
+   - Profil pasien mencatat status perkawinan dan pekerjaan; setiap booking menunggu skrining kontraindikasi Ners.
+   - Catatan SOAP pada Modal Profil Pasien disimpan terpisah di koleksi privat `nurse_clinical_records`. Catatan Perkembangan tetap menggunakan `clinical_progress_notes`.
    - SOAP, Tanda-Tanda Vital (Tekanan Darah, Nadi, Pernapasan, Skala Nyeri 0–10), dan Cetak Rekam Medis.
 4. **Live Sync Real-Time**: Sinkronisasi lintas perangkat aktif di Cloud Firestore, Firebase Realtime Database, dan Google Spreadsheet.
 5. **Ekspor CSV**: Unduh seluruh rekaman janji temu format CSV dengan standar UTF-8 BOM.
+
+### Akses Rekam Medis Perawat
+
+- Terapkan `firestore.rules` ke Firebase sebelum menggunakan skrining atau koleksi SOAP privat.
+- Skrining pra-tindakan dan koleksi `nurse_clinical_records` memerlukan sesi Firebase Authentication non-anonim dengan akun staf resmi (`holistikprofesi47@gmail.com`, `holistikundip@gmail.com`) atau UID yang telah didaftarkan pada koleksi `admins`.
+- Login kode sandi lokal hanya membuka dashboard frontend; kode sandi tersebut bukan kredensial Firebase dan tidak dapat membaca/menulis data medis privat.
+- Catatan perawat tidak ditampilkan dalam portal pasien dan tidak memerlukan tanda tangan fisik.
 

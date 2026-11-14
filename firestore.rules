@@ -28,9 +28,12 @@ service cloud.firestore {
       return isSignedIn() && (
         request.auth.token.email == 'holistikprofesi47@gmail.com' ||
         request.auth.token.email == 'holistikundip@gmail.com' ||
-        (request.auth.token.email != null && (request.auth.token.email.matches('.*undip.*') || request.auth.token.email.matches('.*holistik.*'))) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
+    }
+
+    function isClinicalStaff() {
+      return isAdmin();
     }
 
     function isValidUser(data) {
@@ -63,6 +66,29 @@ service cloud.firestore {
              data.nurseInCharge is string && data.nurseInCharge.size() > 0 && data.nurseInCharge.size() <= 100;
     }
 
+    function isValidContraindicationScreening(data) {
+      return data.contraindicationScreening is map &&
+             data.contraindicationScreening.highFever is bool &&
+             data.contraindicationScreening.bleedingDisorderOrBloodThinner is bool &&
+             data.contraindicationScreening.openWoundAtTherapyArea is bool;
+    }
+
+    function isSafeScreening(data) {
+      return isValidContraindicationScreening(data) &&
+             data.contraindicationScreening.highFever == false &&
+             data.contraindicationScreening.bleedingDisorderOrBloodThinner == false &&
+             data.contraindicationScreening.openWoundAtTherapyArea == false;
+    }
+
+    function isValidNurseClinicalRecord(data) {
+      return data.patientId is string && data.patientId.size() > 0 && data.patientId.size() <= 128 &&
+             data.patientName is string && data.patientName.size() > 0 && data.patientName.size() <= 100 &&
+             data.subjective is string && data.objective is string &&
+             data.assessment is string && data.plan is string &&
+             data.nurseName is string && data.nurseName.size() > 0 && data.nurseName.size() <= 150 &&
+             data.profession == 'Perawat Penanggung Jawab / Ners';
+    }
+
     // User Profiles collection
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -80,7 +106,27 @@ service cloud.firestore {
     // Appointments collection
     match /appointments/{appointmentId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && isValidAppointment(incoming());
+      allow create: if isSignedIn() && isValidAppointment(incoming()) &&
+        (incoming().status in ['Menunggu', 'Dibatalkan']) &&
+        !incoming().keys().hasAny([
+          'contraindicationScreening', 'contraindicationSafe',
+          'contraindicationAssessedBy', 'contraindicationAssessedAt'
+        ]);
+      allow update: if isSignedIn() && isValidAppointment(incoming()) &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'contraindicationScreening', 'contraindicationSafe',
+            'contraindicationAssessedBy', 'contraindicationAssessedAt'
+          ]) || (isClinicalStaff() && isValidContraindicationScreening(incoming()))
+        ) &&
+        (
+          !(incoming().status in ['Terjadwal', 'Selesai']) ||
+          (
+            isClinicalStaff() &&
+            incoming().contraindicationSafe == true &&
+            isSafeScreening(incoming())
+          )
+        );
       allow delete: if isSignedIn();
     }
 
@@ -96,6 +142,13 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn() && isValidClinicalRecord(incoming());
       allow delete: if isAdmin();
+    }
+
+    // Private SOAP records created by the responsible nurse; never exposed to patient accounts.
+    match /nurse_clinical_records/{recordId} {
+      allow read: if isClinicalStaff();
+      allow create, update: if isClinicalStaff() && isValidNurseClinicalRecord(incoming());
+      allow delete: if isClinicalStaff();
     }
 
     // Admins registry

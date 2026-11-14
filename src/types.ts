@@ -55,6 +55,10 @@ export interface Appointment {
   userPhone: string;
   userEmail?: string;
   patientNumber: string;
+  dateOfBirth?: string;
+  gender?: UserProfile['gender'];
+  maritalStatus?: UserProfile['maritalStatus'];
+  occupation?: string;
   therapyId: string;
   therapyName: string;
   locationId: string;
@@ -66,6 +70,14 @@ export interface Appointment {
   status: AppointmentStatus;
   createdAt: string;
   cancelledReason?: string;
+  contraindicationScreening?: {
+    highFever: boolean;
+    bleedingDisorderOrBloodThinner: boolean;
+    openWoundAtTherapyArea: boolean;
+  };
+  contraindicationSafe?: boolean;
+  contraindicationAssessedBy?: string;
+  contraindicationAssessedAt?: string;
 }
 
 export interface UserProfile {
@@ -77,6 +89,7 @@ export interface UserProfile {
   dateOfBirth?: string;
   gender?: 'Laki-laki' | 'Perempuan';
   maritalStatus?: 'Belum menikah' | 'Sudah menikah';
+  occupation?: string;
   password?: string;
   address: string;
   emergencyContact?: string;
@@ -107,6 +120,21 @@ export interface ClinicalProgressNote {
   intervention: string; // Intervensi yang Diberikan
   progressFollowUp: string; // Catatan Perkembangan / Tindak Lanjut Medis
   nurseName: string; // Nama Tenaga Kesehatan / Perawat Penanggung Jawab
+  createdAt: string;
+}
+
+export interface NurseClinicalRecord {
+  id: string;
+  patientId: string;
+  patientName: string;
+  patientNumber: string;
+  appointmentId?: string;
+  subjective: string;
+  objective: string;
+  assessment: string;
+  plan: string;
+  nurseName: string;
+  profession: 'Perawat Penanggung Jawab / Ners';
   createdAt: string;
 }
 

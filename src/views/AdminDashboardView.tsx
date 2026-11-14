@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Stethoscope,
   CalendarCheck,
@@ -7,7 +7,6 @@ import {
   Sparkles,
   CheckCircle2,
   Clock,
-  XCircle,
   Plus,
   Trash2,
   Edit2,
@@ -27,6 +26,22 @@ import { exportAppointmentsToCSV } from '../utils/exportCSV';
 import { GoogleSheetsCard } from '../components/GoogleSheetsCard';
 import { ClinicalProgressNotesManager } from '../components/ClinicalProgressNotesManager';
 import { AdminOccupancySummaryCard } from '../components/AdminOccupancySummaryCard';
+import PatientClinicalProfileModal from '../components/PatientClinicalProfileModal';
+import { getAllUserProfilesFromFirestore } from '../services/firebaseFirestore';
+import { getGenderBadgeClass, getPatientDisplayName } from '../utils/patientDemographics';
+
+interface PatientDirectoryEntry {
+  key: string;
+  name: string;
+  phone: string;
+  patientNumber: string;
+  appointmentsCount: number;
+  lastDate: string;
+  profile: Partial<UserProfile>;
+  latestAppointment: Appointment | null;
+}
+
+type ContraindicationScreening = NonNullable<Appointment['contraindicationScreening']>;
 interface AdminDashboardViewProps {
   appointments: Appointment[];
   therapies: Therapy[];
@@ -39,6 +54,13 @@ interface AdminDashboardViewProps {
   onGoogleLogout: () => void;
   onExitNakesMode: () => void;
   onUpdateAppointmentStatus: (id: string, newStatus: AppointmentStatus) => void;
+  onCompleteScreening: (
+    appointmentId: string,
+    screening: ContraindicationScreening,
+    safe: boolean,
+    nurseName: string,
+    assessedAt: string
+  ) => Promise<void>;
   onDeleteAppointment: (id: string) => void;
   onAddTherapy: (therapy: Therapy) => void;
   onDeleteTherapy: (id: string) => void;
@@ -61,6 +83,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onGoogleLogout,
   onExitNakesMode,
   onUpdateAppointmentStatus,
+  onCompleteScreening,
   onDeleteAppointment,
   onAddTherapy,
   onDeleteTherapy,
@@ -71,16 +94,31 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onDeleteProgressNote
 }) => {
   const [adminTab, setAdminTab] = useState<'appointments' | 'progressNotes' | 'patients' | 'therapies' | 'videos'>('appointments');
-  const [selectedPatientForProgressFilter, setSelectedPatientForProgressFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('Semua');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('');
-  const [selectedPatientProfile, setSelectedPatientProfile] = useState<Appointment | null>(null);
-  const [soapForm, setSoapForm] = useState({ s: '', o: '', a: '', p: '' });
+  const [dateFilterType, setDateFilterType] = useState<'therapy' | 'registration'>('therapy');
+  const [selectedPatientProfile, setSelectedPatientProfile] = useState<{
+    profile: Partial<UserProfile>;
+    appointment: Appointment | null;
+  } | null>(null);
+  const [registeredProfiles, setRegisteredProfiles] = useState<UserProfile[]>([]);
   const [statusUpdateToast, setStatusUpdateToast] = useState<{ code: string; status: string } | null>(null);
   const [appointmentToDelete, setAppointmentToDelete] = useState<Appointment | null>(null);
   const [deleteToast, setDeleteToast] = useState<{ code: string; patientName: string } | null>(null);
   const [csvExportToast, setCsvExportToast] = useState<{ count: number; filename: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getAllUserProfilesFromFirestore()
+      .then((profiles) => {
+        if (active) setRegisteredProfiles(profiles);
+      })
+      .catch((error) => console.warn('Patient profile directory load failed:', error));
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleStatusChangeWithFeedback = (appId: string, bookingCode: string, newStatus: AppointmentStatus) => {
     onUpdateAppointmentStatus(appId, newStatus);
@@ -127,7 +165,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const filteredAppointments = useMemo(() => {
     return appointments.filter((app) => {
       const matchStatus = statusFilter === 'Semua' || app.status === statusFilter;
-      const matchDate = !dateFilter || app.date === dateFilter;
+      const filterableDate = dateFilterType === 'therapy'
+        ? app.date?.split('T')[0]
+        : app.createdAt?.split('T')[0];
+      const matchDate = !dateFilter || filterableDate === dateFilter;
       const matchSearch =
         app.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         app.therapyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -136,28 +177,100 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         app.patientNumber?.toLowerCase().includes(searchQuery.toLowerCase());
       return matchStatus && matchDate && matchSearch;
     });
-  }, [appointments, statusFilter, searchQuery, dateFilter]);
+  }, [appointments, statusFilter, searchQuery, dateFilter, dateFilterType]);
 
-  // Unique Patients from appointments
   const patientsList = useMemo(() => {
-    const map = new Map<string, { name: string; phone: string; patientNumber: string; appointmentsCount: number; lastDate: string }>();
+    const map = new Map<string, PatientDirectoryEntry>();
+    registeredProfiles.forEach((profile) => {
+      const key = profile.id || profile.patientNumber || profile.email;
+      if (!key) return;
+      map.set(key, {
+        key,
+        name: profile.name,
+        phone: profile.phone,
+        patientNumber: profile.patientNumber,
+        appointmentsCount: 0,
+        lastDate: profile.joinedDate || '',
+        profile,
+        latestAppointment: null
+      });
+    });
+
     appointments.forEach((a) => {
-      const existing = map.get(a.userId || a.userName);
+      const matchedProfile = registeredProfiles.find((profile) =>
+        profile.id === a.userId ||
+        (profile.patientNumber && profile.patientNumber === a.patientNumber) ||
+        (profile.email && a.userEmail && profile.email.toLowerCase() === a.userEmail.toLowerCase())
+      );
+      const existing = Array.from(map.values()).find((entry) =>
+        (matchedProfile && entry.profile.id === matchedProfile.id) ||
+        entry.profile.id === a.userId ||
+        (entry.patientNumber && entry.patientNumber === a.patientNumber)
+      );
       if (existing) {
         existing.appointmentsCount += 1;
-        existing.lastDate = a.date;
+        existing.profile = {
+          ...existing.profile,
+          dateOfBirth: existing.profile.dateOfBirth || a.dateOfBirth,
+          gender: existing.profile.gender || a.gender,
+          maritalStatus: existing.profile.maritalStatus || a.maritalStatus,
+          occupation: existing.profile.occupation || a.occupation
+        };
+        if (a.date > existing.lastDate) existing.lastDate = a.date;
+        if (!existing.latestAppointment || a.date >= existing.latestAppointment.date) {
+          existing.latestAppointment = a;
+        }
       } else {
-        map.set(a.userId || a.userName, {
+        const key = matchedProfile?.id || a.userId || a.patientNumber || a.userName;
+        const profile: Partial<UserProfile> = matchedProfile || {
+          id: a.userId,
+          name: a.userName,
+          patientNumber: a.patientNumber,
+          phone: a.userPhone,
+          email: a.userEmail,
+          dateOfBirth: a.dateOfBirth,
+          gender: a.gender,
+          maritalStatus: a.maritalStatus,
+          occupation: a.occupation
+        };
+        map.set(key, {
+          key,
           name: a.userName,
           phone: a.userPhone,
           patientNumber: a.patientNumber,
           appointmentsCount: 1,
-          lastDate: a.date
+          lastDate: a.date,
+          profile,
+          latestAppointment: a
         });
       }
     });
-    return Array.from(map.values());
-  }, [appointments]);
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [appointments, registeredProfiles]);
+
+  const profileForAppointment = (appointment: Appointment): Partial<UserProfile> => {
+    const profile = registeredProfiles.find((item) =>
+      item.id === appointment.userId ||
+      (item.patientNumber && item.patientNumber === appointment.patientNumber) ||
+      (item.email && appointment.userEmail && item.email.toLowerCase() === appointment.userEmail.toLowerCase())
+    );
+    return {
+      ...profile,
+      id: profile?.id || appointment.userId,
+      name: profile?.name || appointment.userName,
+      patientNumber: profile?.patientNumber || appointment.patientNumber,
+      phone: profile?.phone || appointment.userPhone,
+      email: profile?.email || appointment.userEmail,
+      dateOfBirth: profile?.dateOfBirth || appointment.dateOfBirth,
+      gender: profile?.gender || appointment.gender,
+      maritalStatus: profile?.maritalStatus || appointment.maritalStatus,
+      occupation: profile?.occupation || appointment.occupation
+    };
+  };
+
+  const openPatientProfile = (profile: Partial<UserProfile>, appointment: Appointment | null) => {
+    setSelectedPatientProfile({ profile, appointment });
+  };
 
   // Extract YouTube ID from string
   const extractYoutubeId = (url: string) => {
@@ -406,9 +519,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       {adminTab === 'appointments' && (
         <div className="space-y-4">
           {/* Controls: Search, Filter & CSV Export */}
-          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center flex-1">
-              <div className="relative flex-1 sm:max-w-md">
+          <div className="grid gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+            <div className="grid min-w-0 gap-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(260px,auto)]">
+              <div className="relative min-w-0">
                 <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
@@ -419,13 +532,23 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 />
               </div>
 
-              <div className="flex items-center gap-2 bg-stone-50 px-3 py-2 border border-stone-200 rounded-xl text-[11px] text-stone-600">
-                <span className="font-bold text-stone-700">Filter Tanggal Terapi:</span>
+              <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-[11px] text-stone-600">
+                <span className="font-bold text-stone-700">Tanggal:</span>
+                <select
+                  aria-label="Jenis tanggal filter"
+                  value={dateFilterType}
+                  onChange={(e) => setDateFilterType(e.target.value as 'therapy' | 'registration')}
+                  className="min-w-0 rounded-lg bg-stone-50 px-2 py-1 font-semibold text-stone-700"
+                >
+                  <option value="therapy">Terapi</option>
+                  <option value="registration">Pendaftaran</option>
+                </select>
                 <input
+                  aria-label="Filter berdasarkan tanggal"
                   type="date"
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value)}
-                  className="bg-transparent text-stone-800 font-semibold focus:outline-none cursor-pointer"
+                  className="min-w-0 flex-1 bg-transparent font-semibold text-stone-800 focus:outline-none"
                 />
                 {dateFilter && (
                   <button
@@ -438,7 +561,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+              <div className="flex flex-wrap items-center gap-1.5 sm:col-span-2 xl:col-span-1">
                 {['Semua', 'Menunggu', 'Terjadwal', 'Selesai', 'Dibatalkan'].map((st) => (
                   <button
                     key={st}
@@ -456,7 +579,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
 
             {/* Export CSV Buttons */}
-            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
+            <div className="flex items-center gap-2 self-start xl:justify-end">
               <button
                 onClick={handleExportAllCSV}
                 className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs py-2 px-3.5 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer border border-emerald-800 hover:shadow-md"
@@ -551,17 +674,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       <td className="py-3.5 px-4">
                         <button
                           type="button"
-                          onClick={() => {
-                            setSoapForm({ s: '', o: '', a: '', p: '' });
-                            setSelectedPatientProfile(app);
-                          }}
+                          onClick={() => openPatientProfile(profileForAppointment(app), app)}
                           className="font-bold text-stone-900 block text-left hover:text-emerald-800 transition cursor-pointer"
                         >
-                          {app.userName}
+                          {getPatientDisplayName(app.userName, profileForAppointment(app))}
                         </button>
-                        <span className="mt-1 block text-[11px] text-stone-500">
-                          RM: {app.patientNumber || '-'}
-                        </span>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] text-stone-500">RM: {app.patientNumber || '-'}</span>
+                          {(profileForAppointment(app).gender || app.gender) && (
+                            <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${getGenderBadgeClass(profileForAppointment(app).gender || app.gender)}`}>
+                              {profileForAppointment(app).gender || app.gender}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4">
                         <span className="font-semibold text-emerald-900 block">{app.therapyName}</span>
@@ -573,8 +698,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="inline-flex items-center rounded-full border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-600">
-                          Belum tersedia
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                          app.contraindicationSafe === true
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                            : app.contraindicationSafe === false
+                            ? 'border-rose-300 bg-rose-50 text-rose-800'
+                            : 'border-amber-300 bg-amber-50 text-amber-800'
+                        }`}>
+                          {app.contraindicationSafe === true
+                            ? 'Aman'
+                            : app.contraindicationSafe === false
+                            ? 'Perlu Tindak Lanjut'
+                            : 'Belum Skrining'}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
@@ -594,15 +729,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedPatientForProgressFilter(app.userName);
-                              setAdminTab('progressNotes');
-                            }}
+                            onClick={() => openPatientProfile(profileForAppointment(app), app)}
                             className="p-1.5 text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-                            title="Tulis / Lihat Catatan Perkembangan Klinis (SOAP)"
+                            title="Buka profil pasien, skrining, dan rekam medis perawat"
                           >
                             <ClipboardList className="w-3.5 h-3.5" />
-                            <span className="hidden xl:inline">Catatan SOAP</span>
+                            <span className="hidden xl:inline">Profil Klinis</span>
                           </button>
                           <select
                             value={app.status}
@@ -612,8 +744,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                             className="bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold py-1 px-2 text-stone-800 focus:ring-2 focus:ring-emerald-500"
                           >
                             <option value="Menunggu">Menunggu</option>
-                            <option value="Terjadwal">Terjadwal</option>
-                            <option value="Selesai">Selesai</option>
+                            <option value="Terjadwal" disabled={app.contraindicationSafe !== true}>Terjadwal</option>
+                            <option value="Selesai" disabled={app.contraindicationSafe !== true}>Selesai</option>
                             <option value="Dibatalkan">Dibatalkan</option>
                           </select>
                           <button
@@ -642,151 +774,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       )}
 
       {selectedPatientProfile && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-stone-200 p-6 space-y-6">
-            <div className="flex items-center justify-between border-b border-stone-100 pb-4">
-              <div>
-                <h2 className="text-lg font-bold text-stone-900">Rekam Medis & Profil Klinis Pasien</h2>
-                <p className="text-xs text-stone-500">Catatan rahasia intervensi asuhan keperawatan holistik</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSoapForm({ s: '', o: '', a: '', p: '' });
-                  setSelectedPatientProfile(null);
-                }}
-                className="p-2 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-100"
-              >
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
-              <div>
-                <span className="text-stone-400 block mb-0.5">No. Rekam Medis</span>
-                <span className="font-bold text-emerald-700 font-mono">{selectedPatientProfile.patientNumber || 'RM-HNC-XXXX'}</span>
-              </div>
-              <div>
-                <span className="text-stone-400 block mb-0.5">Nama Lengkap</span>
-                <span className="font-bold text-stone-800">{selectedPatientProfile.userName}</span>
-              </div>
-              <div>
-                <span className="text-stone-400 block mb-0.5">Telepon</span>
-                <span className="font-semibold text-stone-700">{selectedPatientProfile.userPhone || '-'}</span>
-              </div>
-              <div>
-                <span className="text-stone-400 block mb-0.5">Status Jadwal</span>
-                <span className="font-medium text-stone-700">{selectedPatientProfile.status}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-stone-600 bg-emerald-50/60 p-3 rounded-xl border border-emerald-100 gap-3">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-emerald-600" />
-                <span>Tanggal Terapi: <strong className="text-stone-800">{formatIndonesianDate(selectedPatientProfile.date)}</strong></span>
-              </div>
-              <div className="bg-emerald-600 text-white px-2.5 py-1 rounded font-medium">
-                Profesi: Perawat Penanggung Jawab / Ners
-              </div>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const now = new Date();
-                const note: ClinicalProgressNote = {
-                  id: `cpn-${now.getTime()}`,
-                  patientId: selectedPatientProfile.userId || selectedPatientProfile.patientNumber || selectedPatientProfile.id,
-                  patientName: selectedPatientProfile.userName,
-                  patientNumber: selectedPatientProfile.patientNumber || '',
-                  patientPhone: selectedPatientProfile.userPhone,
-                  patientEmail: selectedPatientProfile.userEmail,
-                  appointmentId: selectedPatientProfile.id,
-                  bookingCode: selectedPatientProfile.bookingCode,
-                  therapyName: selectedPatientProfile.therapyName,
-                  visitDate: selectedPatientProfile.date,
-                  chiefComplaint: soapForm.s.trim(),
-                  assessment: `O: ${soapForm.o.trim()}\nA: ${soapForm.a.trim()}`,
-                  intervention: selectedPatientProfile.therapyName,
-                  progressFollowUp: `P: ${soapForm.p.trim()}`,
-                  nurseName: 'Ns. Staf Keperawatan Komplementer, S.Kep.',
-                  createdAt: now.toISOString()
-                };
-                onAddProgressNote(note);
-                setSoapForm({ s: '', o: '', a: '', p: '' });
-                setSelectedPatientProfile(null);
-              }}
-              className="space-y-4"
-            >
-              <h3 className="text-sm font-bold text-stone-800 border-l-4 border-emerald-600 pl-2">Dokumentasi Asuhan Keperawatan (SOAP)</h3>
-              <div className="grid grid-cols-1 gap-3 text-xs">
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">S (Subjective) - Keluhan Pasien</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={soapForm.s}
-                    onChange={(e) => setSoapForm((prev) => ({ ...prev, s: e.target.value }))}
-                    placeholder="Contoh: Nyeri punggung bawah berkurang setelah bekam kering..."
-                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">O (Objective) - Pemeriksaan Fisik & TTV</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={soapForm.o}
-                    onChange={(e) => setSoapForm((prev) => ({ ...prev, o: e.target.value }))}
-                    placeholder="Contoh: TD: 120/80 mmHg, Nadi: 80x/menit, Suhu: 36.5°C..."
-                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">A (Assessment) - Analisis / Penilaian Klinis</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={soapForm.a}
-                    onChange={(e) => setSoapForm((prev) => ({ ...prev, a: e.target.value }))}
-                    placeholder="Contoh: Hambatan mobilitas fisik berhubungan dengan nyeri otot punggung..."
-                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-stone-700 mb-1">P (Plan) - Rencana Tindakan & Edukasi</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={soapForm.p}
-                    onChange={(e) => setSoapForm((prev) => ({ ...prev, p: e.target.value }))}
-                    placeholder="Contoh: Lanjutkan terapi komplementer sesi ke-2, anjurkan peregangan ringan..."
-                    className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-stone-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSoapForm({ s: '', o: '', a: '', p: '' });
-                    setSelectedPatientProfile(null);
-                  }}
-                  className="px-4 py-2 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200"
-                >
-                  Tutup
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700"
-                >
-                  Simpan Catatan SOAP
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <PatientClinicalProfileModal
+          profile={selectedPatientProfile.profile}
+          appointment={selectedPatientProfile.appointment}
+          onClose={() => setSelectedPatientProfile(null)}
+          onCompleteScreening={onCompleteScreening}
+        />
       )}
 
       {/* TAB: CLINICAL PROGRESS NOTES (SOAP) */}
@@ -798,8 +791,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           onDeleteNote={onDeleteProgressNote}
           appointments={appointments}
           therapies={therapies}
-          initialSelectedPatient={selectedPatientForProgressFilter}
-          onClearInitialPatient={() => setSelectedPatientForProgressFilter('Semua')}
         />
       )}
 
@@ -814,15 +805,22 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {patientsList.map((pat, idx) => (
-              <div key={idx} className="p-4 rounded-2xl border border-stone-200 bg-stone-50 space-y-3 flex flex-col justify-between">
+            {patientsList.map((pat) => (
+              <div key={pat.key} className="p-4 rounded-2xl border border-stone-200 bg-stone-50 space-y-3 flex flex-col justify-between">
                 <div className="space-y-2">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h4 className="font-bold text-stone-900 text-sm">{pat.name}</h4>
+                      <h4 className="font-bold text-stone-900 text-sm">
+                        {getPatientDisplayName(pat.name, pat.profile)}
+                      </h4>
                       <span className="text-[11px] text-emerald-800 font-mono font-semibold">
                         {pat.patientNumber || 'Pasien Umum'}
                       </span>
+                      {pat.profile.gender && (
+                        <span className={`ml-1.5 rounded-full border px-2 py-0.5 text-[9px] font-bold ${getGenderBadgeClass(pat.profile.gender)}`}>
+                          {pat.profile.gender}
+                        </span>
+                      )}
                     </div>
                     <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                       {pat.appointmentsCount} Sesi
@@ -830,20 +828,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   </div>
                   <div className="text-xs text-stone-600 space-y-0.5 pt-1">
                     <p>Telepon: <span className="font-semibold text-stone-800">{pat.phone}</span></p>
-                    <p>Kunjungan Terakhir: <span className="font-semibold text-stone-800">{formatIndonesianDate(pat.lastDate)}</span></p>
+                    <p>Pekerjaan: <span className="font-semibold text-stone-800">{pat.profile.occupation || '-'}</span></p>
+                    <p>Kunjungan Terakhir: <span className="font-semibold text-stone-800">{pat.lastDate ? formatIndonesianDate(pat.lastDate) : '-'}</span></p>
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-stone-200/70 flex items-center justify-end">
                   <button
-                    onClick={() => {
-                      setSelectedPatientForProgressFilter(pat.name);
-                      setAdminTab('progressNotes');
-                    }}
+                    onClick={() => openPatientProfile(pat.profile, pat.latestAppointment)}
                     className="w-full text-center bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 hover:border-emerald-300 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                   >
                     <ClipboardList className="w-3.5 h-3.5" />
-                    <span>Lihat Catatan Perkembangan</span>
+                    <span>Profil & Rekam Medis</span>
                   </button>
                 </div>
               </div>
