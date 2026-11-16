@@ -28,7 +28,7 @@ import { GoogleSheetsCard } from '../components/GoogleSheetsCard';
 import { ClinicalProgressNotesManager } from '../components/ClinicalProgressNotesManager';
 import { AdminOccupancySummaryCard } from '../components/AdminOccupancySummaryCard';
 import PatientClinicalProfileModal from '../components/PatientClinicalProfileModal';
-import { getUserProfilesPage } from '../services/firebaseFirestore';
+import { getAllUserProfilesFromFirestore } from '../services/firebaseFirestore';
 import { getGenderBadgeClass, getPatientDisplayName } from '../utils/patientDemographics';
 
 interface PatientDirectoryEntry {
@@ -44,15 +44,9 @@ interface PatientDirectoryEntry {
 
 interface AdminDashboardViewProps {
   appointments: Appointment[];
-  hasMoreAppointments: boolean;
-  isLoadingMoreAppointments: boolean;
-  onLoadMoreAppointments: () => void;
   therapies: Therapy[];
   videos: VideoType[];
   progressNotes: ClinicalProgressNote[];
-  hasMoreProgressNotes: boolean;
-  isLoadingMoreProgressNotes: boolean;
-  onLoadMoreProgressNotes: () => void;
   locations?: LocationItem[];
   googleUser: any | null;
   accessToken: string | null;
@@ -72,15 +66,9 @@ interface AdminDashboardViewProps {
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   appointments,
-  hasMoreAppointments,
-  isLoadingMoreAppointments,
-  onLoadMoreAppointments,
   therapies,
   videos,
   progressNotes,
-  hasMoreProgressNotes,
-  isLoadingMoreProgressNotes,
-  onLoadMoreProgressNotes,
   locations,
   googleUser,
   accessToken,
@@ -108,8 +96,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     appointment: Appointment | null;
   } | null>(null);
   const [registeredProfiles, setRegisteredProfiles] = useState<UserProfile[]>([]);
-  const [profilePageInfo, setProfilePageInfo] = useState({ cursor: null as string | null, hasMore: false });
-  const [isLoadingMoreProfiles, setIsLoadingMoreProfiles] = useState(false);
   const [statusUpdateToast, setStatusUpdateToast] = useState<{ code: string; status: string } | null>(null);
   const [appointmentToDelete, setAppointmentToDelete] = useState<Appointment | null>(null);
   const [deleteToast, setDeleteToast] = useState<{ code: string; patientName: string } | null>(null);
@@ -117,36 +103,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   useEffect(() => {
     let active = true;
-    getUserProfilesPage()
-      .then((page) => {
-        if (active) {
-          setRegisteredProfiles(page.items);
-          setProfilePageInfo({ cursor: page.cursor, hasMore: page.hasMore });
-        }
+    getAllUserProfilesFromFirestore()
+      .then((profiles) => {
+        if (active) setRegisteredProfiles(profiles);
       })
       .catch((error) => console.warn('Patient profile directory load failed:', error));
     return () => {
       active = false;
     };
   }, []);
-
-  const handleLoadMoreProfiles = async () => {
-    if (isLoadingMoreProfiles || !profilePageInfo.hasMore || !profilePageInfo.cursor) return;
-    setIsLoadingMoreProfiles(true);
-    try {
-      const page = await getUserProfilesPage(profilePageInfo.cursor);
-      setRegisteredProfiles((current) => {
-        const byId = new Map(current.map((profile) => [profile.id, profile]));
-        page.items.forEach((profile) => byId.set(profile.id, profile));
-        return Array.from(byId.values());
-      });
-      setProfilePageInfo({ cursor: page.cursor, hasMore: page.hasMore });
-    } catch (error) {
-      console.warn('Patient profile directory page load failed:', error);
-    } finally {
-      setIsLoadingMoreProfiles(false);
-    }
-  };
 
   const handleStatusChangeWithFeedback = (appId: string, bookingCode: string, newStatus: AppointmentStatus) => {
     onUpdateAppointmentStatus(appId, newStatus);
@@ -461,10 +426,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <button
             onClick={handleExportAllCSV}
             className="w-full sm:w-auto bg-emerald-700/80 hover:bg-emerald-600 text-white text-xs font-bold px-3.5 py-2.5 rounded-2xl border border-emerald-500/40 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs hover:shadow-md"
-            title="Ekspor janji temu yang sudah dimuat ke file CSV"
+            title="Ekspor seluruh data janji temu ke file CSV"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Ekspor CSV ({appointments.length} dimuat)</span>
+            <span>Ekspor CSV ({appointments.length})</span>
           </button>
 
           <button
@@ -631,10 +596,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <button
                 onClick={handleExportAllCSV}
                 className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs py-2 px-3.5 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer border border-emerald-800 hover:shadow-md"
-                title="Ekspor janji temu yang sudah dimuat ke file CSV"
+                title="Ekspor seluruh data janji temu ke file CSV"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Unduh CSV ({appointments.length} dimuat)</span>
+                <span>Unduh Semua CSV ({appointments.length})</span>
               </button>
               {(statusFilter !== 'Semua' || searchQuery.trim() !== '' || dateFilter) && filteredAppointments.length > 0 && (
                 <button
@@ -801,17 +766,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 Tidak ada data jadwal yang sesuai filter pencarian.
               </div>
             )}
-
-            {hasMoreAppointments && (
-              <button
-                type="button"
-                onClick={onLoadMoreAppointments}
-                disabled={isLoadingMoreAppointments}
-                className="mx-auto block rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
-              >
-                {isLoadingMoreAppointments ? 'Memuat jadwal...' : 'Muat jadwal berikutnya'}
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -833,9 +787,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           onDeleteNote={onDeleteProgressNote}
           appointments={appointments}
           therapies={therapies}
-          hasMoreProgressNotes={hasMoreProgressNotes}
-          isLoadingMoreProgressNotes={isLoadingMoreProgressNotes}
-          onLoadMoreProgressNotes={onLoadMoreProgressNotes}
         />
       )}
 
@@ -905,17 +856,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 </div>
               ))}
             </div>
-          )}
-
-          {profilePageInfo.hasMore && (
-            <button
-              type="button"
-              onClick={handleLoadMoreProfiles}
-              disabled={isLoadingMoreProfiles}
-              className="mx-auto block rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
-            >
-              {isLoadingMoreProfiles ? 'Memuat pasien...' : 'Muat pasien berikutnya'}
-            </button>
           )}
         </div>
       )}

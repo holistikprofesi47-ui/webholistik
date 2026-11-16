@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, User, Phone, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { generatePatientNumber, saveRegisteredPatient, getRegisteredPatients } from '../utils/storage';
-import {
-  saveUserProfileToFirestore,
-  saveRegistrationToFirestore,
-  getUserProfileByIdentifier,
-  getUserProfileFromFirestore
-} from '../services/firebaseFirestore';
+import { saveUserProfileToFirestore, saveRegistrationToFirestore, getAllUserProfilesFromFirestore } from '../services/firebaseFirestore';
 import { saveUserProfileToRTDB } from '../services/firebaseRealtime';
 import { registerWithEmailPassword, loginWithEmailPassword } from '../services/firebaseAuth';
 import { UserProfile } from '../types';
@@ -88,9 +83,7 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
           }
         }
 
-        let foundPatient: any = firebaseAuthUser
-          ? await getUserProfileFromFirestore(firebaseAuthUser.uid)
-          : null;
+        let foundPatient: any = null;
         const registeredList = getRegisteredPatients();
         const localMatch = registeredList.find(
           (p) =>
@@ -99,12 +92,21 @@ export const PatientAuthModal: React.FC<PatientAuthModalProps> = (props) => {
             (p.phone && p.phone.replace(/\D/g, '') === cleanInput.replace(/\D/g, ''))
         );
 
-        if (!foundPatient && localMatch) {
+        if (localMatch) {
           foundPatient = localMatch;
-        } else if (!foundPatient) {
-          // Cari hanya berdasarkan identifier agar tidak mengunduh seluruh koleksi profil.
+        } else {
+          // Cari di Firestore
           try {
-            foundPatient = await getUserProfileByIdentifier(identifier);
+            const firestoreProfiles = await getAllUserProfilesFromFirestore();
+            const firestoreMatch = firestoreProfiles.find(
+              (p) =>
+                (p.email && p.email.toLowerCase() === cleanInput) ||
+                (p.patientNumber && p.patientNumber.toLowerCase() === cleanInput) ||
+                (p.phone && p.phone.replace(/\D/g, '') === cleanInput.replace(/\D/g, ''))
+            );
+            if (firestoreMatch) {
+              foundPatient = firestoreMatch;
+            }
           } catch (fsErr) {
             console.warn('Firestore user fetch notice:', fsErr);
           }

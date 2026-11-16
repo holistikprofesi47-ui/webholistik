@@ -21,7 +21,7 @@ import { GENERATE_TIME_SLOTS } from '../data/mockData';
 import { generateBookingCode, getIndonesianDayName, formatIndonesianDate } from '../utils/storage';
 import { appendAppointmentToSheet } from '../services/googleSheets';
 import { appendPatientRegistrationToEndpoint } from '../services/patientRegistrationEndpoint';
-import { getAppointmentsForDate, saveAppointmentToFirestore } from '../services/firebaseFirestore';
+import { saveAppointmentToFirestore } from '../services/firebaseFirestore';
 import { saveAppointmentToRTDB } from '../services/firebaseRealtime';
 import { safeStorage } from '../utils/storage';
 
@@ -81,9 +81,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
   // Created appointment result
   const [createdAppointment, setCreatedAppointment] = useState<Appointment | null>(null);
-  const [dateAppointments, setDateAppointments] = useState<Appointment[]>([]);
-  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
-  const [availabilityError, setAvailabilityError] = useState('');
 
   // Initialize or reset when opened
   useEffect(() => {
@@ -120,36 +117,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     }
   }, [isOpen, preSelectedTherapy, therapies, locations, currentUser]);
 
-  useEffect(() => {
-    if (!isOpen || !selectedDate) {
-      setDateAppointments([]);
-      setAvailabilityError('');
-      return;
-    }
-
-    let active = true;
-    setIsLoadingAvailability(true);
-    setAvailabilityError('');
-    getAppointmentsForDate(selectedDate)
-      .then((appointments) => {
-        if (active) setDateAppointments(appointments);
-      })
-      .catch((error) => {
-        console.warn('Unable to verify appointment availability:', error);
-        if (active) {
-          setDateAppointments([]);
-          setAvailabilityError('Ketersediaan jadwal belum dapat diverifikasi. Silakan coba lagi.');
-        }
-      })
-      .finally(() => {
-        if (active) setIsLoadingAvailability(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isOpen, selectedDate]);
-
   // Helper normalisasi string jam (menghapus "WIB" dan spasi)
   const normalizeTimeSlot = (timeStr?: string): string => {
     if (!timeStr) return '';
@@ -172,10 +139,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     const booked = new Map<string, Appointment>();
     const cleanDate = selectedDate.split('T')[0].trim();
 
-    const appointmentsForDate = new Map(
-      [...existingAppointments, ...dateAppointments].map((appointment) => [appointment.id, appointment])
-    );
-    appointmentsForDate.forEach((app) => {
+    existingAppointments.forEach((app) => {
       // Abaikan reservasi yang dibatalkan
       if (app.status === 'Dibatalkan') return;
 
@@ -202,7 +166,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     });
 
     return booked;
-  }, [selectedDate, selectedLocationId, selectedLocation, existingAppointments, dateAppointments]);
+  }, [selectedDate, selectedLocationId, selectedLocation, existingAppointments]);
 
   // Jika tanggal atau lokasi berubah dan jam terpilih ternyata sudah penuh atau di luar jam operasional lokasi, reset pilihan jam
   useEffect(() => {
@@ -249,14 +213,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     } else if (step === 3) {
       if (!selectedDate) {
         setErrorMessage('Silakan pilih tanggal tindakan.');
-        return;
-      }
-      if (isLoadingAvailability) {
-        setErrorMessage('Mohon tunggu, ketersediaan jadwal sedang diperiksa.');
-        return;
-      }
-      if (availabilityError) {
-        setErrorMessage(availabilityError);
         return;
       }
       if (isSunday) {
