@@ -68,6 +68,13 @@ interface PatientGroup {
   uniqueNurses: string[];
 }
 
+const getLocalDateKey = () => {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+};
+
 export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManagerProps> = ({
   progressNotes,
   onAddNote,
@@ -88,6 +95,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   const [noteToDelete, setNoteToDelete] = useState<ClinicalProgressNote | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [cloudPatientProfiles, setCloudPatientProfiles] = useState<UserProfile[]>([]);
+  const [todayKey, setTodayKey] = useState(getLocalDateKey);
 
   // Form State
   const [formPatientId, setFormPatientId] = useState<string>('');
@@ -98,6 +106,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   const [formTherapyName, setFormTherapyName] = useState('');
   const [formVisitDate, setFormVisitDate] = useState(new Date().toISOString().split('T')[0]);
   const [formBookingCode, setFormBookingCode] = useState('');
+  const [formAppointmentId, setFormAppointmentId] = useState('');
   const [formChiefComplaint, setFormChiefComplaint] = useState('');
   const [formAssessment, setFormAssessment] = useState('');
   const [formIntervention, setFormIntervention] = useState('');
@@ -132,6 +141,16 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timeoutId = window.setTimeout(
+      () => setTodayKey(getLocalDateKey()),
+      nextMidnight.getTime() - now.getTime()
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [todayKey]);
 
   const getProfileForNote = (note: ClinicalProgressNote): UserProfile | undefined => {
     const matchedByIdentifier = registeredPatientsList.find((profile) =>
@@ -242,6 +261,33 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     });
   }, [filteredNotes, registeredPatientsList]);
 
+  const completedAppointmentsToday = useMemo(() => {
+    const completedToday = appointments.filter(
+      (appointment) => appointment.status === 'Selesai' && appointment.date?.split('T')[0] === todayKey
+    );
+
+    return completedToday.map((appointment) => {
+      const note = progressNotes.find((candidate) => {
+        if (candidate.appointmentId && candidate.appointmentId === appointment.id) return true;
+        if (candidate.bookingCode && candidate.bookingCode === appointment.bookingCode) return true;
+
+        const samePatient = appointment.userId
+          ? candidate.patientId === appointment.userId
+          : (appointment.patientNumber && candidate.patientNumber === appointment.patientNumber) ||
+            (appointment.userPhone && candidate.patientPhone === appointment.userPhone) ||
+            candidate.patientName.trim().toLocaleLowerCase('id') === appointment.userName.trim().toLocaleLowerCase('id');
+
+        return samePatient &&
+          candidate.visitDate === appointment.date &&
+          candidate.therapyName === appointment.therapyName;
+      });
+
+      return { appointment, note };
+    });
+  }, [appointments, progressNotes, todayKey]);
+
+  const pendingTodayCount = completedAppointmentsToday.filter(({ note }) => !note).length;
+
   // Expand all / collapse all handlers
   const handleToggleExpandPatient = (key: string) => {
     setExpandedPatientKeys((prev) =>
@@ -274,6 +320,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
       setFormTherapyName(fromAppointment.therapyName);
       setFormVisitDate(fromAppointment.date || new Date().toISOString().split('T')[0]);
       setFormBookingCode(fromAppointment.bookingCode);
+      setFormAppointmentId(fromAppointment.id);
       setFormChiefComplaint(fromAppointment.notes ? `Keluhan saat reservasi: ${fromAppointment.notes}` : '');
     } else {
       setFormPatientId('');
@@ -284,6 +331,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
       setFormTherapyName(therapies[0]?.name || 'Akupresur Relaksasi');
       setFormVisitDate(new Date().toISOString().split('T')[0]);
       setFormBookingCode('');
+      setFormAppointmentId('');
       setFormChiefComplaint('');
     }
 
@@ -308,6 +356,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     setFormTherapyName(group.latestTherapy || therapies[0]?.name || 'Akupresur Relaksasi');
     setFormVisitDate(new Date().toISOString().split('T')[0]);
     setFormBookingCode('');
+    setFormAppointmentId('');
     setFormChiefComplaint('');
     setFormAssessment('');
     setFormIntervention('');
@@ -331,6 +380,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     setFormTherapyName(note.therapyName);
     setFormVisitDate(note.visitDate);
     setFormBookingCode(note.bookingCode || '');
+    setFormAppointmentId(note.appointmentId || '');
     setFormChiefComplaint(note.chiefComplaint);
     setFormAssessment(note.assessment);
     setFormIntervention(note.intervention);
@@ -358,6 +408,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         setFormTherapyName(found.therapyName);
         setFormVisitDate(found.date);
         setFormBookingCode(found.bookingCode);
+        setFormAppointmentId(found.id);
         if (found.notes && !formChiefComplaint) {
           setFormChiefComplaint(`Keluhan: ${found.notes}`);
         }
@@ -412,6 +463,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         patientEmail: finalPatientEmail,
         therapyName: formTherapyName.trim(),
         visitDate: formVisitDate,
+        appointmentId: formAppointmentId || undefined,
         bookingCode: formBookingCode.trim() || undefined,
         chiefComplaint: formChiefComplaint.trim(),
         assessment: formAssessment.trim(),
@@ -455,6 +507,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         patientEmail: finalPatientEmail,
         therapyName: formTherapyName.trim(),
         visitDate: formVisitDate,
+        appointmentId: formAppointmentId || undefined,
         bookingCode: formBookingCode.trim() || undefined,
         chiefComplaint: formChiefComplaint.trim(),
         assessment: formAssessment.trim(),
@@ -533,6 +586,18 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         </div>
       )}
 
+      {pendingTodayCount > 0 && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-xs"
+        >
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <p className="text-sm font-semibold">
+            Perhatian: Terdapat <span className="font-black">{pendingTodayCount}</span> pasien selesai terapi hari ini yang belum diisi catatan perkembangannya.
+          </p>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-stone-900 rounded-3xl p-6 text-white shadow-md relative overflow-hidden">
         <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -598,6 +663,68 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
           </div>
         </div>
       </div>
+
+      {completedAppointmentsToday.length > 0 && (
+        <section className="space-y-3 rounded-3xl border border-stone-200 bg-white p-4 shadow-xs sm:p-5">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="font-bold text-stone-900">Pasien Selesai Terapi Hari Ini</h3>
+              <p className="text-xs text-stone-500">Catatan SOAP yang disimpan akan tercatat di riwayat pasien.</p>
+            </div>
+            <span className="text-xs font-semibold text-stone-500">
+              {completedAppointmentsToday.length} kunjungan
+            </span>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {completedAppointmentsToday.map(({ appointment, note }) => (
+              <div
+                key={appointment.id}
+                className="flex flex-col justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50/70 p-4 sm:flex-row sm:items-center"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="truncate text-sm font-bold text-stone-900">{appointment.userName}</p>
+                  <p className="text-xs text-stone-600">
+                    {appointment.therapyName} <span className="text-stone-400">·</span> {appointment.timeSlot}
+                    {appointment.bookingCode && (
+                      <span className="ml-2 font-mono text-[10px] text-stone-500">{appointment.bookingCode}</span>
+                    )}
+                  </p>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                      note
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-900'
+                    }`}
+                  >
+                    {note ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                    {note ? 'Sudah Diisi' : 'Belum Diberikan Catatan Perkembangan'}
+                  </span>
+                </div>
+
+                {note ? (
+                  <button
+                    type="button"
+                    onClick={() => setDetailNote(note)}
+                    className="shrink-0 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50"
+                  >
+                    Lihat Catatan
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAddModal(appointment)}
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Catatan Perkembangan Baru
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Filter, Search, & View Mode Bar */}
       <div className="flex flex-col lg:flex-row gap-3 items-center justify-between bg-white p-4 rounded-3xl border border-stone-200 shadow-xs">
