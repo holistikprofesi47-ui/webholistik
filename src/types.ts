@@ -70,14 +70,6 @@ export interface Appointment {
   status: AppointmentStatus;
   createdAt: string;
   cancelledReason?: string;
-  contraindicationScreening?: {
-    highFever: boolean;
-    bleedingDisorderOrBloodThinner: boolean;
-    openWoundAtTherapyArea: boolean;
-  };
-  contraindicationSafe?: boolean;
-  contraindicationAssessedBy?: string;
-  contraindicationAssessedAt?: string;
 }
 
 export interface UserProfile {

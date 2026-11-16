@@ -4,7 +4,6 @@ import {
   getDocs,
   setDoc,
   addDoc,
-  updateDoc,
   deleteDoc,
   collection,
   query,
@@ -199,29 +198,6 @@ export async function saveAppointmentToFirestore(appointment: Appointment): Prom
     } else {
       console.info('Appointment save queued in Firestore local cache.');
     }
-  }
-}
-
-export async function saveAppointmentScreening(
-  appointmentId: string,
-  screening: NonNullable<Appointment['contraindicationScreening']>,
-  safe: boolean,
-  nurseName: string,
-  assessedAt: string
-): Promise<void> {
-  const path = `appointments/${appointmentId}`;
-  try {
-    await updateDoc(doc(db, 'appointments', appointmentId), {
-      contraindicationScreening: screening,
-      contraindicationSafe: safe,
-      contraindicationAssessedBy: nurseName,
-      contraindicationAssessedAt: assessedAt,
-      status: safe ? 'Terjadwal' : 'Menunggu',
-      updatedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
   }
 }
 

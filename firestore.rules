@@ -66,20 +66,6 @@ service cloud.firestore {
              data.nurseInCharge is string && data.nurseInCharge.size() > 0 && data.nurseInCharge.size() <= 100;
     }
 
-    function isValidContraindicationScreening(data) {
-      return data.contraindicationScreening is map &&
-             data.contraindicationScreening.highFever is bool &&
-             data.contraindicationScreening.bleedingDisorderOrBloodThinner is bool &&
-             data.contraindicationScreening.openWoundAtTherapyArea is bool;
-    }
-
-    function isSafeScreening(data) {
-      return isValidContraindicationScreening(data) &&
-             data.contraindicationScreening.highFever == false &&
-             data.contraindicationScreening.bleedingDisorderOrBloodThinner == false &&
-             data.contraindicationScreening.openWoundAtTherapyArea == false;
-    }
-
     function isValidNurseClinicalRecord(data) {
       return data.patientId is string && data.patientId.size() > 0 && data.patientId.size() <= 128 &&
              data.patientName is string && data.patientName.size() > 0 && data.patientName.size() <= 100 &&
@@ -107,25 +93,11 @@ service cloud.firestore {
     match /appointments/{appointmentId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidAppointment(incoming()) &&
-        (incoming().status in ['Menunggu', 'Dibatalkan']) &&
-        !incoming().keys().hasAny([
-          'contraindicationScreening', 'contraindicationSafe',
-          'contraindicationAssessedBy', 'contraindicationAssessedAt'
-        ]);
+        incoming().status in ['Menunggu', 'Dibatalkan'];
       allow update: if isSignedIn() && isValidAppointment(incoming()) &&
         (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'contraindicationScreening', 'contraindicationSafe',
-            'contraindicationAssessedBy', 'contraindicationAssessedAt'
-          ]) || (isClinicalStaff() && isValidContraindicationScreening(incoming()))
-        ) &&
-        (
           !(incoming().status in ['Terjadwal', 'Selesai']) ||
-          (
-            isClinicalStaff() &&
-            incoming().contraindicationSafe == true &&
-            isSafeScreening(incoming())
-          )
+          isClinicalStaff()
         );
       allow delete: if isSignedIn();
     }

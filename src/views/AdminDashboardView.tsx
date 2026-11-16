@@ -41,7 +41,6 @@ interface PatientDirectoryEntry {
   latestAppointment: Appointment | null;
 }
 
-type ContraindicationScreening = NonNullable<Appointment['contraindicationScreening']>;
 interface AdminDashboardViewProps {
   appointments: Appointment[];
   therapies: Therapy[];
@@ -54,13 +53,6 @@ interface AdminDashboardViewProps {
   onGoogleLogout: () => void;
   onExitNakesMode: () => void;
   onUpdateAppointmentStatus: (id: string, newStatus: AppointmentStatus) => void;
-  onCompleteScreening: (
-    appointmentId: string,
-    screening: ContraindicationScreening,
-    safe: boolean,
-    nurseName: string,
-    assessedAt: string
-  ) => Promise<void>;
   onDeleteAppointment: (id: string) => void;
   onAddTherapy: (therapy: Therapy) => void;
   onDeleteTherapy: (id: string) => void;
@@ -83,7 +75,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onGoogleLogout,
   onExitNakesMode,
   onUpdateAppointmentStatus,
-  onCompleteScreening,
   onDeleteAppointment,
   onAddTherapy,
   onDeleteTherapy,
@@ -96,6 +87,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [adminTab, setAdminTab] = useState<'appointments' | 'progressNotes' | 'patients' | 'therapies' | 'videos'>('appointments');
   const [statusFilter, setStatusFilter] = useState<string>('Semua');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [patientSearchQuery, setPatientSearchQuery] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('');
   const [dateFilterType, setDateFilterType] = useState<'therapy' | 'registration'>('therapy');
   const [selectedPatientProfile, setSelectedPatientProfile] = useState<{
@@ -247,6 +239,26 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [appointments, registeredProfiles]);
+
+  const filteredPatientsList = useMemo(() => {
+    const query = patientSearchQuery.trim().toLowerCase();
+    if (!query) return patientsList;
+
+    return patientsList.filter((patient) => {
+      const searchable = [
+        patient.name,
+        patient.patientNumber,
+        patient.phone,
+        patient.profile.email,
+        patient.profile.gender,
+        patient.profile.occupation,
+        patient.profile.maritalStatus,
+        patient.lastDate
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      return searchable.includes(query);
+    });
+  }, [patientsList, patientSearchQuery]);
 
   const profileForAppointment = (appointment: Appointment): Partial<UserProfile> => {
     const profile = registeredProfiles.find((item) =>
@@ -655,7 +667,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <th className="py-3.5 px-4">Kode & Tanggal</th>
                     <th className="py-3.5 px-4">Nama Pasien & Klasifikasi</th>
                     <th className="py-3.5 px-4">Terapi & Waktu</th>
-                    <th className="py-3.5 px-4">Informed Consent (Nakes)</th>
                     <th className="py-3.5 px-4">Status</th>
                     <th className="py-3.5 px-4 text-right">Kelola Status</th>
                   </tr>
@@ -698,21 +709,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                          app.contraindicationSafe === true
-                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                            : app.contraindicationSafe === false
-                            ? 'border-rose-300 bg-rose-50 text-rose-800'
-                            : 'border-amber-300 bg-amber-50 text-amber-800'
-                        }`}>
-                          {app.contraindicationSafe === true
-                            ? 'Aman'
-                            : app.contraindicationSafe === false
-                            ? 'Perlu Tindak Lanjut'
-                            : 'Belum Skrining'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 whitespace-nowrap">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                           app.status === 'Terjadwal'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
@@ -731,7 +727,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                             type="button"
                             onClick={() => openPatientProfile(profileForAppointment(app), app)}
                             className="p-1.5 text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-                            title="Buka profil pasien, skrining, dan rekam medis perawat"
+                            title="Buka profil pasien dan rekam medis perawat"
                           >
                             <ClipboardList className="w-3.5 h-3.5" />
                             <span className="hidden xl:inline">Profil Klinis</span>
@@ -744,8 +740,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                             className="bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold py-1 px-2 text-stone-800 focus:ring-2 focus:ring-emerald-500"
                           >
                             <option value="Menunggu">Menunggu</option>
-                            <option value="Terjadwal" disabled={app.contraindicationSafe !== true}>Terjadwal</option>
-                            <option value="Selesai" disabled={app.contraindicationSafe !== true}>Selesai</option>
+                            <option value="Terjadwal">Terjadwal</option>
+                            <option value="Selesai">Selesai</option>
                             <option value="Dibatalkan">Dibatalkan</option>
                           </select>
                           <button
@@ -778,7 +774,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           profile={selectedPatientProfile.profile}
           appointment={selectedPatientProfile.appointment}
           onClose={() => setSelectedPatientProfile(null)}
-          onCompleteScreening={onCompleteScreening}
         />
       )}
 
@@ -797,54 +792,70 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       {/* TAB 2: PATIENT DIRECTORY */}
       {adminTab === 'patients' && (
         <div className="bg-white rounded-3xl border border-stone-200 p-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-bold text-stone-900 text-base">Direktori Pasien Terdaftar</h3>
               <p className="text-xs text-stone-500">Daftar pengguna yang telah melakukan reservasi terapi dan memiliki rekam kunjungan.</p>
             </div>
+            <div className="relative w-full max-w-md">
+              <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                value={patientSearchQuery}
+                onChange={(e) => setPatientSearchQuery(e.target.value)}
+                placeholder="Cari pasien, nomor RM, atau telepon..."
+                className="w-full bg-stone-50 border border-stone-200 rounded-xl pl-10 pr-3 py-2.5 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {patientsList.map((pat) => (
-              <div key={pat.key} className="p-4 rounded-2xl border border-stone-200 bg-stone-50 space-y-3 flex flex-col justify-between">
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-bold text-stone-900 text-sm">
-                        {getPatientDisplayName(pat.name, pat.profile)}
-                      </h4>
-                      <span className="text-[11px] text-emerald-800 font-mono font-semibold">
-                        {pat.patientNumber || 'Pasien Umum'}
-                      </span>
-                      {pat.profile.gender && (
-                        <span className={`ml-1.5 rounded-full border px-2 py-0.5 text-[9px] font-bold ${getGenderBadgeClass(pat.profile.gender)}`}>
-                          {pat.profile.gender}
+          {filteredPatientsList.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
+              Tidak ada pasien yang sesuai dengan kata kunci "{patientSearchQuery}".
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredPatientsList.map((pat) => (
+                <div key={pat.key} className="p-4 rounded-2xl border border-stone-200 bg-stone-50 space-y-3 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="font-bold text-stone-900 text-sm">
+                          {getPatientDisplayName(pat.name, pat.profile)}
+                        </h4>
+                        <span className="text-[11px] text-emerald-800 font-mono font-semibold">
+                          {pat.patientNumber || 'Pasien Umum'}
                         </span>
-                      )}
+                        {pat.profile.gender && (
+                          <span className={`ml-1.5 rounded-full border px-2 py-0.5 text-[9px] font-bold ${getGenderBadgeClass(pat.profile.gender)}`}>
+                            {pat.profile.gender}
+                          </span>
+                        )}
+                      </div>
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                        {pat.appointmentsCount} Sesi
+                      </span>
                     </div>
-                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      {pat.appointmentsCount} Sesi
-                    </span>
+                    <div className="text-xs text-stone-600 space-y-0.5 pt-1">
+                      <p>Telepon: <span className="font-semibold text-stone-800">{pat.phone}</span></p>
+                      <p>Pekerjaan: <span className="font-semibold text-stone-800">{pat.profile.occupation || '-'}</span></p>
+                      <p>Kunjungan Terakhir: <span className="font-semibold text-stone-800">{pat.lastDate ? formatIndonesianDate(pat.lastDate) : '-'}</span></p>
+                    </div>
                   </div>
-                  <div className="text-xs text-stone-600 space-y-0.5 pt-1">
-                    <p>Telepon: <span className="font-semibold text-stone-800">{pat.phone}</span></p>
-                    <p>Pekerjaan: <span className="font-semibold text-stone-800">{pat.profile.occupation || '-'}</span></p>
-                    <p>Kunjungan Terakhir: <span className="font-semibold text-stone-800">{pat.lastDate ? formatIndonesianDate(pat.lastDate) : '-'}</span></p>
-                  </div>
-                </div>
 
-                <div className="pt-2 border-t border-stone-200/70 flex items-center justify-end">
-                  <button
-                    onClick={() => openPatientProfile(pat.profile, pat.latestAppointment)}
-                    className="w-full text-center bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 hover:border-emerald-300 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                  >
-                    <ClipboardList className="w-3.5 h-3.5" />
-                    <span>Profil & Rekam Medis</span>
-                  </button>
+                  <div className="pt-2 border-t border-stone-200/70 flex items-center justify-end">
+                    <button
+                      onClick={() => openPatientProfile(pat.profile, pat.latestAppointment)}
+                      className="w-full text-center bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 hover:border-emerald-300 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <ClipboardList className="w-3.5 h-3.5" />
+                      <span>Profil & Rekam Medis</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

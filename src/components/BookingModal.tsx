@@ -898,7 +898,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   Jadwal Berhasil Dibuat!
                 </h3>
                 <p className="text-xs text-emerald-800 font-medium mt-1">
-                  Jadwal tercatat dan menunggu skrining kontraindikasi oleh perawat sebelum disetujui.
+                  Jadwal berhasil dicatat dan menunggu konfirmasi dari tenaga kesehatan.
                 </p>
               </div>
 
