@@ -180,10 +180,10 @@ export default function App() {
   // Real-time synchronization untuk Catatan Perkembangan Klinis (Rekam Medis) Nakes & Pasien
   useEffect(() => {
     const unsubscribeNotes = subscribeProgressNotes(
-      null,
-      true,
+      user,
+      isAdmin,
       (remoteNotes) => {
-        if (remoteNotes && remoteNotes.length > 0) {
+        if (isAdmin || (user.id && !user.isGuest)) {
           setProgressNotes(remoteNotes);
           saveProgressNotes(remoteNotes);
         }
@@ -198,7 +198,7 @@ export default function App() {
         unsubscribeNotes();
       }
     };
-  }, []);
+  }, [user, isAdmin]);
 
   const handleGoogleAuthSuccess = (u: any, token: string) => {
     setGoogleUser(u);
@@ -392,29 +392,17 @@ export default function App() {
   };
 
   const handleAddProgressNote = async (newNote: ClinicalProgressNote) => {
+    await saveProgressNoteToFirestore(newNote);
     const updated = [newNote, ...progressNotes];
     setProgressNotes(updated);
     saveProgressNotes(updated);
-
-    // Sync ke Firestore secara real-time
-    try {
-      await saveProgressNoteToFirestore(newNote);
-    } catch (err) {
-      console.warn('Sync progress note to Firestore notice:', err);
-    }
   };
 
   const handleUpdateProgressNote = async (updatedNote: ClinicalProgressNote) => {
+    await saveProgressNoteToFirestore(updatedNote);
     const updated = progressNotes.map((n) => (n.id === updatedNote.id ? updatedNote : n));
     setProgressNotes(updated);
     saveProgressNotes(updated);
-
-    // Sync ke Firestore secara real-time
-    try {
-      await saveProgressNoteToFirestore(updatedNote);
-    } catch (err) {
-      console.warn('Sync updated progress note to Firestore notice:', err);
-    }
   };
 
   const handleDeleteProgressNote = async (id: string) => {

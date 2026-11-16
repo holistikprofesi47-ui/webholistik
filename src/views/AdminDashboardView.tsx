@@ -58,8 +58,8 @@ interface AdminDashboardViewProps {
   onDeleteTherapy: (id: string) => void;
   onAddVideo: (video: VideoType) => void;
   onDeleteVideo: (id: string) => void;
-  onAddProgressNote: (note: ClinicalProgressNote) => void;
-  onUpdateProgressNote: (note: ClinicalProgressNote) => void;
+  onAddProgressNote: (note: ClinicalProgressNote) => void | Promise<void>;
+  onUpdateProgressNote: (note: ClinicalProgressNote) => void | Promise<void>;
   onDeleteProgressNote: (id: string) => void;
 }
 

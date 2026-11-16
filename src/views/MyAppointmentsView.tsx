@@ -176,7 +176,7 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
           }`}
         >
           <ClipboardList className="w-4 h-4 text-emerald-700" />
-          <span>Catatan Perkembangan Nakes ({userProgressNotes.length})</span>
+          <span>Catatan Perkembangan Saya ({userProgressNotes.length})</span>
           {userProgressNotes.length > 0 && (
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           )}
@@ -226,10 +226,10 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
                         <button
                           onClick={() => setSelectedNoteForModal(matchedNote)}
                           className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 transition cursor-pointer"
-                          title="Klik untuk membaca evaluasi tindakan dari perawat"
+                          title="Buka catatan perkembangan yang dapat dibaca pasien"
                         >
                           <ClipboardList className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Catatan Perawat Tersedia</span>
+                          <span>Catatan Perkembangan Tersedia</span>
                         </button>
                       )}
                     </div>
@@ -261,7 +261,7 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
                         className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-xs"
                       >
                         <Stethoscope className="w-3.5 h-3.5" />
-                        <span>Rekam Medis Nakes</span>
+                        <span>Baca Catatan Perkembangan</span>
                       </button>
                     )}
 

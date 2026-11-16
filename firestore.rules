@@ -104,9 +104,10 @@ service cloud.firestore {
 
     // Clinical Progress Notes collection
     match /clinical_progress_notes/{noteId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && isValidProgressNote(incoming());
-      allow delete: if isSignedIn();
+      allow read: if isAdmin() ||
+        (isSignedIn() && existing().patientId == request.auth.uid);
+      allow create, update: if isClinicalStaff() && isValidProgressNote(incoming());
+      allow delete: if isClinicalStaff();
     }
 
     // Clinical Records collection (Catatan Perawatan Terapis / Rekam Medis)

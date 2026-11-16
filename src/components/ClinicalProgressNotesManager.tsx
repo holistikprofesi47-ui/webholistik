@@ -23,6 +23,7 @@ import {
   Users,
   Layers,
   List,
+  Clock,
   TrendingDown,
   TrendingUp,
   Phone,
@@ -32,13 +33,13 @@ import {
 } from 'lucide-react';
 import { ClinicalProgressNote, Appointment, UserProfile, Therapy } from '../types';
 import { formatIndonesianDate, getRegisteredPatients } from '../utils/storage';
-import { getAllUserProfilesFromFirestore, saveClinicalRecordToFirestore } from '../services/firebaseFirestore';
+import { getAllUserProfilesFromFirestore } from '../services/firebaseFirestore';
 import { formatAge, getAgeParts, getGenderBadgeClass, getPatientDisplayName } from '../utils/patientDemographics';
 
 interface ClinicalProgressNotesManagerProps {
   progressNotes: ClinicalProgressNote[];
-  onAddNote: (note: ClinicalProgressNote) => void;
-  onUpdateNote: (note: ClinicalProgressNote) => void;
+  onAddNote: (note: ClinicalProgressNote) => void | Promise<void>;
+  onUpdateNote: (note: ClinicalProgressNote) => void | Promise<void>;
   onDeleteNote: (id: string) => void;
   appointments: Appointment[];
   therapies: Therapy[];
@@ -90,6 +91,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   const [viewMode, setViewMode] = useState<'grouped' | 'list'>('grouped');
   const [expandedPatientKeys, setExpandedPatientKeys] = useState<string[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSavingNote, setIsSavingNote] = useState(false);
   const [editingNote, setEditingNote] = useState<ClinicalProgressNote | null>(null);
   const [detailNote, setDetailNote] = useState<ClinicalProgressNote | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<ClinicalProgressNote | null>(null);
@@ -104,7 +106,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   const [formPatientPhone, setFormPatientPhone] = useState('');
   const [formPatientEmail, setFormPatientEmail] = useState('');
   const [formTherapyName, setFormTherapyName] = useState('');
-  const [formVisitDate, setFormVisitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formVisitDate, setFormVisitDate] = useState(getLocalDateKey);
   const [formBookingCode, setFormBookingCode] = useState('');
   const [formAppointmentId, setFormAppointmentId] = useState('');
   const [formChiefComplaint, setFormChiefComplaint] = useState('');
@@ -263,23 +265,33 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
 
   const completedAppointmentsToday = useMemo(() => {
     const completedToday = appointments.filter(
-      (appointment) => appointment.status === 'Selesai' && appointment.date?.split('T')[0] === todayKey
+      (appointment) =>
+        appointment.status === 'Selesai' &&
+        appointment.date?.split('T')[0] === todayKey
     );
 
     return completedToday.map((appointment) => {
       const note = progressNotes.find((candidate) => {
         if (candidate.appointmentId && candidate.appointmentId === appointment.id) return true;
-        if (candidate.bookingCode && candidate.bookingCode === appointment.bookingCode) return true;
+        if (
+          candidate.bookingCode &&
+          appointment.bookingCode &&
+          candidate.bookingCode.trim().toLowerCase() === appointment.bookingCode.trim().toLowerCase()
+        ) return true;
 
-        const samePatient = appointment.userId
-          ? candidate.patientId === appointment.userId
-          : (appointment.patientNumber && candidate.patientNumber === appointment.patientNumber) ||
-            (appointment.userPhone && candidate.patientPhone === appointment.userPhone) ||
-            candidate.patientName.trim().toLocaleLowerCase('id') === appointment.userName.trim().toLocaleLowerCase('id');
+        const samePatient =
+          (appointment.userId && candidate.patientId === appointment.userId) ||
+          (appointment.patientNumber &&
+            candidate.patientNumber?.trim().toLowerCase() === appointment.patientNumber.trim().toLowerCase()) ||
+          (appointment.userPhone &&
+            candidate.patientPhone?.replace(/\D/g, '') === appointment.userPhone.replace(/\D/g, '')) ||
+          candidate.patientName.trim().toLocaleLowerCase('id') === appointment.userName.trim().toLocaleLowerCase('id');
 
-        return samePatient &&
-          candidate.visitDate === appointment.date &&
-          candidate.therapyName === appointment.therapyName;
+        return Boolean(
+          samePatient &&
+          candidate.visitDate?.split('T')[0] === appointment.date?.split('T')[0] &&
+          candidate.therapyName.trim().toLocaleLowerCase('id') === appointment.therapyName.trim().toLocaleLowerCase('id')
+        );
       });
 
       return { appointment, note };
@@ -318,7 +330,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
       setFormPatientPhone(fromAppointment.userPhone || '');
       setFormPatientEmail(fromAppointment.userEmail || '');
       setFormTherapyName(fromAppointment.therapyName);
-      setFormVisitDate(fromAppointment.date || new Date().toISOString().split('T')[0]);
+      setFormVisitDate(fromAppointment.date || getLocalDateKey());
       setFormBookingCode(fromAppointment.bookingCode);
       setFormAppointmentId(fromAppointment.id);
       setFormChiefComplaint(fromAppointment.notes ? `Keluhan saat reservasi: ${fromAppointment.notes}` : '');
@@ -329,7 +341,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
       setFormPatientPhone('');
       setFormPatientEmail('');
       setFormTherapyName(therapies[0]?.name || 'Akupresur Relaksasi');
-      setFormVisitDate(new Date().toISOString().split('T')[0]);
+      setFormVisitDate(getLocalDateKey());
       setFormBookingCode('');
       setFormAppointmentId('');
       setFormChiefComplaint('');
@@ -354,7 +366,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     setFormPatientPhone(group.patientPhone || '');
     setFormPatientEmail(group.patientEmail || '');
     setFormTherapyName(group.latestTherapy || therapies[0]?.name || 'Akupresur Relaksasi');
-    setFormVisitDate(new Date().toISOString().split('T')[0]);
+    setFormVisitDate(getLocalDateKey());
     setFormBookingCode('');
     setFormAppointmentId('');
     setFormChiefComplaint('');
@@ -426,12 +438,14 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
     }
   };
 
-  const handleSaveForm = (e: React.FormEvent) => {
+  const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingNote) return;
     if (!formPatientName.trim() || !formChiefComplaint.trim() || !formAssessment.trim() || !formIntervention.trim() || !formProgressFollowUp.trim()) {
       alert('Mohon lengkapi kolom Tanggal Kunjungan, Nama Pasien, Keluhan Utama, Hasil Pengkajian, Intervensi, dan Catatan Perkembangan.');
       return;
     }
+    setIsSavingNote(true);
 
     // Auto-resolve patient ID and RM from registered directory if not filled
     let finalPatientId = formPatientId;
@@ -477,26 +491,16 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         progressFollowUp: formProgressFollowUp.trim(),
         nurseName: formNurseName.trim()
       };
-      onUpdateNote(updated);
+      try {
+        await onUpdateNote(updated);
+      } catch (error) {
+        console.error('Gagal menyimpan catatan perkembangan ke Firebase:', error);
+        alert('Catatan perkembangan gagal disimpan ke Firebase. Periksa koneksi, lalu coba lagi.');
+        setIsSavingNote(false);
+        return;
+      }
 
-      // Simpan juga ke koleksi Firestore "clinical_records" (Spesifikasi DipoCare)
-      saveClinicalRecordToFirestore({
-        patientId: updated.patientId,
-        vitalSigns: {
-          bloodPressure: formBP.trim(),
-          heartRate: formPulse.trim(),
-          respiratoryRate: formRR.trim(),
-          painLevel: formPainScale
-        },
-        chiefComplaint: updated.chiefComplaint,
-        clinicalAssessment: updated.assessment,
-        intervention: updated.intervention,
-        evaluation: updated.progressFollowUp,
-        nurseInCharge: updated.nurseName,
-        createdAt: new Date().toISOString()
-      }).catch(e => console.warn('Sync clinical_records notice:', e));
-
-      showToast(`Catatan perkembangan pasien ${updated.patientName} berhasil diperbarui & tersimpan ke Cloud Firestore.`);
+      showToast(`Catatan perkembangan pasien ${updated.patientName} berhasil diperbarui dan tersedia di profil pasien.`);
     } else {
       const newNote: ClinicalProgressNote = {
         id: `cpn-${Date.now()}`,
@@ -522,30 +526,21 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         nurseName: formNurseName.trim(),
         createdAt: new Date().toISOString()
       };
-      onAddNote(newNote);
+      try {
+        await onAddNote(newNote);
+      } catch (error) {
+        console.error('Gagal menyimpan catatan perkembangan ke Firebase:', error);
+        alert('Catatan perkembangan gagal disimpan ke Firebase. Periksa koneksi, lalu coba lagi.');
+        setIsSavingNote(false);
+        return;
+      }
 
-      // Simpan ke koleksi Firestore "clinical_records" (Spesifikasi DipoCare)
-      saveClinicalRecordToFirestore({
-        patientId: newNote.patientId,
-        vitalSigns: {
-          bloodPressure: formBP.trim(),
-          heartRate: formPulse.trim(),
-          respiratoryRate: formRR.trim(),
-          painLevel: formPainScale
-        },
-        chiefComplaint: newNote.chiefComplaint,
-        clinicalAssessment: newNote.assessment,
-        intervention: newNote.intervention,
-        evaluation: newNote.progressFollowUp,
-        nurseInCharge: newNote.nurseName,
-        createdAt: newNote.createdAt
-      }).catch(e => console.warn('Sync clinical_records notice:', e));
-
-      showToast(`Catatan perkembangan kontrol baru untuk ${newNote.patientName} berhasil disimpan ke Cloud Firestore.`);
+      showToast(`Catatan perkembangan untuk ${newNote.patientName} berhasil disimpan dan tersedia di profil pasien.`);
     }
 
     setShowAddModal(false);
     setEditingNote(null);
+    setIsSavingNote(false);
   };
 
   const handleConfirmDeleteNote = () => {
@@ -608,10 +603,10 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
               <span>Dokumentasi Rekam Klinis Keperawatan</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-              Catatan Perkembangan Kontrol Kunjungan Lanjutan
+                Catatan Perkembangan Kontrol Kunjungan Lanjutan
             </h2>
             <p className="text-xs sm:text-sm text-emerald-100/80 leading-relaxed">
-              Pencatatan asuhan keperawatan holistik komplementer berkelanjutan. Pantau perkembangan subjektif, tanda vital, intervensi, dan evaluasi medis per pasien secara terstruktur.
+              Catatan yang disimpan di sini menjadi riwayat perkembangan pasien dan dapat dibaca pasien melalui akunnya.
             </p>
           </div>
 
@@ -637,7 +632,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
           </div>
 
           <div className="bg-emerald-950/50 backdrop-blur-xs p-3 rounded-2xl border border-emerald-700/40">
-            <span className="text-[10px] uppercase font-bold text-emerald-300 block">Total Catatan SOAP</span>
+            <span className="text-[10px] uppercase font-bold text-emerald-300 block">Total Catatan Perkembangan</span>
             <div className="flex items-baseline gap-1.5 mt-0.5">
               <span className="text-lg font-black text-white">{filteredNotes.length}</span>
               <span className="text-[11px] text-emerald-200">Rekam Kunjungan</span>
@@ -669,7 +664,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h3 className="font-bold text-stone-900">Pasien Selesai Terapi Hari Ini</h3>
-              <p className="text-xs text-stone-500">Catatan SOAP yang disimpan akan tercatat di riwayat pasien.</p>
+              <p className="text-xs text-stone-500">Catatan yang disimpan di sini masuk ke riwayat dan dapat dibaca pasien di akunnya.</p>
             </div>
             <span className="text-xs font-semibold text-stone-500">
               {completedAppointmentsToday.length} kunjungan
@@ -692,13 +687,11 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                   </p>
                   <span
                     className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                      note
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-amber-100 text-amber-900'
+                      note ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
                     }`}
                   >
                     {note ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                    {note ? 'Sudah Diisi' : 'Belum Diberikan Catatan Perkembangan'}
+                    {note ? 'Sudah Diberikan Catatan Perkembangan' : 'Belum Diberikan Catatan Perkembangan'}
                   </span>
                 </div>
 
@@ -717,7 +710,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                     className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Catatan Perkembangan Baru
+                    + Catatan Perkembangan Baru
                   </button>
                 )}
               </div>
@@ -933,7 +926,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                     <button
                       onClick={() => handleOpenAddModalForPatientGroup(group)}
                       className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-xs hover:shadow-md cursor-pointer"
-                      title={`Tambah Catatan SOAP Baru untuk ${group.patientName}`}
+                      title={`Tambah Catatan Perkembangan Baru untuk ${group.patientName}`}
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Catatan Baru</span>
@@ -1026,7 +1019,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                             </div>
                           </div>
 
-                          {/* 4 SOAP Dimensions */}
+                          {/* Catatan perkembangan pasien */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {/* 1. Keluhan Utama */}
                             <div className="bg-amber-50/70 border border-amber-200/70 rounded-xl p-3 space-y-1">
@@ -1162,7 +1155,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                   <button
                     onClick={() => setDetailNote(note)}
                     className="p-2 rounded-xl text-stone-600 hover:text-emerald-800 hover:bg-emerald-50 border border-stone-200 hover:border-emerald-200 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
-                    title="Lihat Detail SOAP / Rekam Klinis"
+                    title="Lihat Detail Catatan Perkembangan"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span className="hidden md:inline">Detail Lengkap</span>
@@ -1275,7 +1268,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                     {editingNote ? 'Edit Catatan Perkembangan Pasien' : 'Catatan Perkembangan Kontrol Kunjungan'}
                   </h3>
                   <p className="text-xs text-stone-500">
-                    Dokumentasi SOAP & evaluasi asuhan keperawatan holistik komplementer
+                    Catatan ini tersimpan sebagai riwayat perkembangan yang dapat dibaca pasien di akunnya.
                   </p>
                 </div>
               </div>
@@ -1536,20 +1529,22 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100">
                 <button
                   type="button"
+                  disabled={isSavingNote}
                   onClick={() => {
                     setShowAddModal(false);
                     setEditingNote(null);
                   }}
-                  className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs transition cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-md hover:shadow-lg cursor-pointer"
+                  disabled={isSavingNote}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-md hover:shadow-lg cursor-pointer disabled:cursor-wait disabled:opacity-60"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{editingNote ? 'Simpan Perubahan' : 'Simpan Catatan Perkembangan'}</span>
+                  <span>{isSavingNote ? 'Menyimpan...' : editingNote ? 'Simpan Perubahan' : 'Simpan Catatan Perkembangan'}</span>
                 </button>
               </div>
             </form>
@@ -1557,7 +1552,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
         </div>
       )}
 
-      {/* MODAL: Detail SOAP / Rekam Klinis */}
+      {/* MODAL: Detail Catatan Perkembangan Pasien */}
       {detailNote && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-8 animate-scaleUp border border-stone-200 print:shadow-none print:border-none">
@@ -1670,7 +1665,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
               </div>
             )}
 
-            {/* SOAP Detailed Columns */}
+            {/* Rincian catatan perkembangan pasien */}
             <div className="space-y-3.5 text-xs">
               <div className="p-4 bg-amber-50/60 rounded-2xl border border-amber-200/70 space-y-1">
                 <h5 className="font-bold text-amber-900 uppercase tracking-wide text-[11px] flex items-center gap-1.5">
@@ -1743,7 +1738,7 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
                   Hapus Catatan Perkembangan Pasien?
                 </h3>
                 <p className="text-xs text-stone-500 mt-0.5 leading-relaxed">
-                  Apakah Anda yakin ingin menghapus catatan kunjungan klinis ini? Tindakan ini akan menghapus rekaman riwayat SOAP pasien secara permanen.
+                  Apakah Anda yakin ingin menghapus catatan kunjungan klinis ini? Catatan perkembangan ini akan dihapus dari riwayat pasien secara permanen.
                 </p>
               </div>
             </div>
