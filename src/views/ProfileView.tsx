@@ -175,7 +175,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
             {onOpenPatientAuth && (
               <button
-                onClick={() => onOpenPatientAuth()}
+                onClick={() => onOpenPatientAuth?.()}
                 className="bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
               >
                 <Users className="w-3.5 h-3.5" />
@@ -544,7 +544,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
         {onOpenPatientAuth && (
           <button
-            onClick={onOpenPatientAuth}
+            onClick={() => onOpenPatientAuth()}
             className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-emerald-50/50 border border-emerald-100 bg-emerald-50/20 transition cursor-pointer text-left"
           >
             <div className="flex items-center gap-3">

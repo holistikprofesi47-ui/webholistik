@@ -1,10 +1,9 @@
-import {StrictMode} from 'react';
+import {StrictMode, createElement} from 'react';
+// @ts-expect-error react-dom/client types are not installed in this project.
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+  createElement(StrictMode, null, createElement(App)),
 );

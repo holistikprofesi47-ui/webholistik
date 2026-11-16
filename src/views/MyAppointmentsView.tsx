@@ -1,3 +1,4 @@
+/** @jsxRuntime classic */
 import React, { useState, useMemo } from 'react';
 import {
   CalendarClock,
@@ -42,7 +43,7 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
   onViewDetail,
   onCancelAppointment,
   onOpenPatientAuth
-}) => {
+}: MyAppointmentsViewProps) => {
   const [activeSubTab, setActiveSubTab] = useState<'appointments' | 'progressNotes'>('appointments');
   const [selectedStatus, setSelectedStatus] = useState<string>('Semua');
   const [selectedNoteForModal, setSelectedNoteForModal] = useState<ClinicalProgressNote | null>(null);
@@ -55,7 +56,7 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
   }, [appointments, currentUser]);
 
   const filteredAppointments = useMemo(() => {
-    return userScopedAppointments.filter((app) => {
+    return userScopedAppointments.filter((app: Appointment) => {
       if (selectedStatus === 'Semua') return true;
       return app.status === selectedStatus;
     });
@@ -207,7 +208,7 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
           <div className="space-y-4">
             {filteredAppointments.map((app) => {
               const matchedNote = userProgressNotes.find(
-                (n) => n.bookingCode === app.bookingCode || n.appointmentId === app.id
+                (n: ClinicalProgressNote) => n.bookingCode === app.bookingCode || n.appointmentId === app.id
               );
 
               return (
@@ -341,7 +342,7 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {userProgressNotes.map((note) => (
+              {userProgressNotes.map((note: ClinicalProgressNote) => (
                 <div
                   key={note.id}
                   onClick={() => setSelectedNoteForModal(note)}

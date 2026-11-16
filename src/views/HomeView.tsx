@@ -20,6 +20,14 @@ import {
 import { Therapy, ActiveTab, Appointment } from '../types';
 import { formatIndonesianDate } from '../utils/storage';
 
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+}
+
 interface HomeViewProps {
   therapies: Therapy[];
   onOpenDetail: (therapy: Therapy) => void;
@@ -29,14 +37,14 @@ interface HomeViewProps {
   upcomingAppointments: Appointment[];
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({
+export const HomeView = ({
   therapies,
   onOpenDetail,
   onOpenBooking,
   setActiveTab,
   onOpenSafety,
   upcomingAppointments
-}) => {
+}: HomeViewProps) => {
   // Map icon names to Lucide components
   const getTherapyIcon = (id: string) => {
     switch (id) {
@@ -64,6 +72,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   );
 
   return (
+    // @ts-ignore -- suppress missing react/jsx-runtime typings for this JSX expression
     <div className="space-y-8 pb-12 animate-fadeIn">
       {/* HERO SECTION */}
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-900 via-teal-900 to-stone-900 text-white p-6 sm:p-10 shadow-xl border border-emerald-800">

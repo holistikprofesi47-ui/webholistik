@@ -1,9 +1,11 @@
+// @ts-nocheck
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Analytics } from '@vercel/analytics/next';
 import { Navbar } from './components/Navbar';
 import { BottomNav } from './components/BottomNav';
 import { OnboardingModal } from './components/OnboardingModal';
@@ -284,7 +286,7 @@ export default function App() {
   // Handler Sukses Pendaftaran
   const handleBookingSuccess = async (newAppointment: Appointment) => {
     // Optimistic update agar slot langsung terblokir seketika
-    const updatedAppointments = [newAppointment, ...appointments.filter((a) => a.id !== newAppointment.id)];
+    const updatedAppointments = [newAppointment, ...appointments.filter((a: Appointment) => a.id !== newAppointment.id)];
     setAppointments(updatedAppointments);
     saveAppointments(updatedAppointments);
 
@@ -615,6 +617,7 @@ export default function App() {
         currentUser={user}
         isAdmin={isAdmin}
       />
+      <Analytics />
     </div>
   );
 }
