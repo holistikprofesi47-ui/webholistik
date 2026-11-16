@@ -244,6 +244,7 @@ export const getStoredTherapies = (): Therapy[] => {
   } catch (e) {
     console.error('Failed to load therapies', e);
   }
+  saveTherapies(INITIAL_THERAPIES);
   return INITIAL_THERAPIES;
 };
 
@@ -297,7 +298,16 @@ export const getStoredLocations = (): LocationItem[] => {
   } catch (e) {
     console.error('Failed to load locations', e);
   }
+  saveLocations(INITIAL_LOCATIONS);
   return INITIAL_LOCATIONS;
+};
+
+export const saveLocations = (locations: LocationItem[]) => {
+  try {
+    safeStorage.set(STORAGE_KEYS.LOCATIONS, JSON.stringify(locations));
+  } catch (e) {
+    console.error('Failed to save locations', e);
+  }
 };
 
 export const hasSeenOnboarding = (): boolean => {

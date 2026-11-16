@@ -27,6 +27,9 @@ import { formatIndonesianDate, filterUserAppointments, filterProgressNotesForUse
 
 interface MyAppointmentsViewProps {
   appointments: Appointment[];
+  hasMoreAppointments: boolean;
+  isLoadingMoreAppointments: boolean;
+  onLoadMoreAppointments: () => void;
   currentUser: UserProfile;
   progressNotes?: ClinicalProgressNote[];
   onOpenBooking: () => void;
@@ -37,6 +40,9 @@ interface MyAppointmentsViewProps {
 
 export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
   appointments,
+  hasMoreAppointments,
+  isLoadingMoreAppointments,
+  onLoadMoreAppointments,
   currentUser,
   progressNotes = [],
   onOpenBooking,
@@ -306,6 +312,17 @@ export const MyAppointmentsView: React.FC<MyAppointmentsViewProps> = ({
                   <span>Buat Jadwal Baru</span>
                 </button>
               </div>
+            )}
+
+            {hasMoreAppointments && (
+              <button
+                type="button"
+                onClick={onLoadMoreAppointments}
+                disabled={isLoadingMoreAppointments}
+                className="mx-auto block rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isLoadingMoreAppointments ? 'Memuat riwayat...' : 'Muat riwayat berikutnya'}
+              </button>
             )}
           </div>
         </div>

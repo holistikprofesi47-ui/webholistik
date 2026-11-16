@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { ClinicalProgressNote, Appointment, UserProfile, Therapy } from '../types';
 import { formatIndonesianDate, getRegisteredPatients } from '../utils/storage';
-import { getAllUserProfilesFromFirestore } from '../services/firebaseFirestore';
+import { getUserProfilesByIds } from '../services/firebaseFirestore';
 import { formatAge, getAgeParts, getGenderBadgeClass, getPatientDisplayName } from '../utils/patientDemographics';
 
 interface ClinicalProgressNotesManagerProps {
@@ -43,6 +43,9 @@ interface ClinicalProgressNotesManagerProps {
   onDeleteNote: (id: string) => void;
   appointments: Appointment[];
   therapies: Therapy[];
+  hasMoreProgressNotes: boolean;
+  isLoadingMoreProgressNotes: boolean;
+  onLoadMoreProgressNotes: () => void;
   initialSelectedPatient?: string | null;
   onClearInitialPatient?: () => void;
 }
@@ -83,6 +86,9 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
   onDeleteNote,
   appointments,
   therapies,
+  hasMoreProgressNotes,
+  isLoadingMoreProgressNotes,
+  onLoadMoreProgressNotes,
   initialSelectedPatient,
   onClearInitialPatient
 }) => {
@@ -136,13 +142,19 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
 
   useEffect(() => {
     let active = true;
-    getAllUserProfilesFromFirestore().then((profiles) => {
-      if (active) setCloudPatientProfiles(profiles);
-    });
+    const patientIds = [
+      ...progressNotes.map((note) => note.patientId),
+      ...appointments.map((appointment) => appointment.userId)
+    ];
+    getUserProfilesByIds(patientIds)
+      .then((profiles) => {
+        if (active) setCloudPatientProfiles(profiles);
+      })
+      .catch((error) => console.warn('Clinical patient profile lookup failed:', error));
     return () => {
       active = false;
     };
-  }, []);
+  }, [progressNotes, appointments]);
 
   useEffect(() => {
     const now = new Date();
@@ -611,6 +623,16 @@ export const ClinicalProgressNotesManager: React.FC<ClinicalProgressNotesManager
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {hasMoreProgressNotes && (
+              <button
+                type="button"
+                onClick={onLoadMoreProgressNotes}
+                disabled={isLoadingMoreProgressNotes}
+                className="rounded-2xl border border-emerald-400/40 bg-white/10 px-4 py-3 text-xs font-bold text-white transition hover:bg-white/20 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isLoadingMoreProgressNotes ? 'Memuat...' : 'Muat catatan berikutnya'}
+              </button>
+            )}
             <button
               onClick={() => handleOpenAddModal()}
               className="bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-black text-xs sm:text-sm px-4 py-3 rounded-2xl transition flex items-center gap-2 shadow-lg hover:shadow-emerald-500/25 cursor-pointer"

@@ -1,8 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, LockKeyhole, Save, X } from 'lucide-react';
 import { Appointment, NurseClinicalRecord, UserProfile } from '../types';
 import { auth } from '../services/firebaseAuth';
-import { saveNurseClinicalRecord, subscribeNurseClinicalRecords } from '../services/firebaseFirestore';
+import {
+  getNurseClinicalRecordsPage,
+  saveNurseClinicalRecord,
+  subscribeNurseClinicalRecords
+} from '../services/firebaseFirestore';
 import { getAgeParts, getPatientDisplayName } from '../utils/patientDemographics';
 
 interface PatientClinicalProfileModalProps {
@@ -17,10 +21,15 @@ const PatientClinicalProfileModal: React.FC<PatientClinicalProfileModalProps> = 
   onClose
 }) => {
   const [records, setRecords] = useState<NurseClinicalRecord[]>([]);
+  const [recordsPageInfo, setRecordsPageInfo] = useState({ cursor: null as string | null, hasMore: false });
+  const [isLoadingMoreRecords, setIsLoadingMoreRecords] = useState(false);
   const [soap, setSoap] = useState({ subjective: '', objective: '', assessment: '', plan: '' });
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [notice, setNotice] = useState('');
+  const recordPageIdsRef = useRef(new Set<string>());
+  const hasRecordSnapshotRef = useRef(false);
+  const hasLoadedMoreRecordsRef = useRef(false);
 
   const patientId =
     appointment?.userId || profile.id || appointment?.patientNumber || profile.patientNumber || '';
@@ -35,12 +44,58 @@ const PatientClinicalProfileModal: React.FC<PatientClinicalProfileModalProps> = 
 
   useEffect(() => {
     if (!patientId) return;
+    hasRecordSnapshotRef.current = false;
+    hasLoadedMoreRecordsRef.current = false;
+    recordPageIdsRef.current = new Set();
+    setRecords([]);
+    setRecordsPageInfo({ cursor: null, hasMore: false });
     return subscribeNurseClinicalRecords(
       patientId,
-      setRecords,
+      (remoteRecords, pageInfo) => {
+        if (!hasLoadedMoreRecordsRef.current) setRecordsPageInfo(pageInfo);
+        const newPageIds = new Set(remoteRecords.map((record) => record.id));
+        if (!hasRecordSnapshotRef.current) {
+          hasRecordSnapshotRef.current = true;
+          recordPageIdsRef.current = newPageIds;
+          setRecords(remoteRecords);
+          return;
+        }
+
+        const previousPageIds = recordPageIdsRef.current;
+        recordPageIdsRef.current = newPageIds;
+        setRecords((current) => {
+          const retainedPages = current.filter(
+            (record) => !previousPageIds.has(record.id) && !newPageIds.has(record.id)
+          );
+          return [...retainedPages, ...remoteRecords].sort(
+            (a, b) => b.createdAt.localeCompare(a.createdAt)
+          );
+        });
+      },
       (error) => setErrorMessage(`Rekam medis perawat tidak dapat dimuat: ${error.message}`)
     );
   }, [patientId]);
+
+  const handleLoadMoreRecords = async () => {
+    if (isLoadingMoreRecords || !recordsPageInfo.hasMore || !recordsPageInfo.cursor) return;
+    setIsLoadingMoreRecords(true);
+    try {
+      const page = await getNurseClinicalRecordsPage(patientId, recordsPageInfo.cursor);
+      hasLoadedMoreRecordsRef.current = true;
+      setRecords((current) => {
+        const byId = new Map(current.map((record) => [record.id, record]));
+        page.items.forEach((record) => byId.set(record.id, record));
+        return Array.from(byId.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      });
+      setRecordsPageInfo({ cursor: page.cursor, hasMore: page.hasMore });
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? `Riwayat SOAP tidak dapat dimuat: ${error.message}` : 'Riwayat SOAP tidak dapat dimuat.'
+      );
+    } finally {
+      setIsLoadingMoreRecords(false);
+    }
+  };
 
   const handleSaveSoap = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -158,6 +213,16 @@ const PatientClinicalProfileModal: React.FC<PatientClinicalProfileModalProps> = 
                 </article>
               ))}
             </div>
+          )}
+          {recordsPageInfo.hasMore && (
+            <button
+              type="button"
+              onClick={handleLoadMoreRecords}
+              disabled={isLoadingMoreRecords}
+              className="mt-3 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
+            >
+              {isLoadingMoreRecords ? 'Memuat riwayat...' : 'Muat riwayat SOAP berikutnya'}
+            </button>
           )}
         </section>
 

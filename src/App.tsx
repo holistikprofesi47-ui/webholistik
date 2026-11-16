@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { Navbar } from './components/Navbar';
 import { BottomNav } from './components/BottomNav';
@@ -32,7 +32,9 @@ import {
   saveAppointmentToFirestore,
   deleteAppointmentFromFirestore,
   subscribeAppointments,
+  getAppointmentsPage,
   subscribeProgressNotes,
+  getProgressNotesPage,
   saveProgressNoteToFirestore,
   deleteProgressNoteFromFirestore
 } from './services/firebaseFirestore';
@@ -72,7 +74,22 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>(getStoredAppointments);
   const [progressNotes, setProgressNotes] = useState<ClinicalProgressNote[]>(getStoredProgressNotes);
   const [user, setUser] = useState<UserProfile>(getStoredUser);
+  const [appointmentPageInfo, setAppointmentPageInfo] = useState({ cursor: null as string | null, hasMore: false });
+  const [progressNotesPageInfo, setProgressNotesPageInfo] = useState({ cursor: null as string | null, hasMore: false });
+  const [isLoadingMoreAppointments, setIsLoadingMoreAppointments] = useState(false);
+  const [isLoadingMoreProgressNotes, setIsLoadingMoreProgressNotes] = useState(false);
+  const accessTokenRef = useRef(accessToken);
+  const appointmentPageIdsRef = useRef(new Set<string>());
+  const progressNotesPageIdsRef = useRef(new Set<string>());
+  const hasAppointmentSnapshotRef = useRef(false);
+  const hasProgressNotesSnapshotRef = useRef(false);
+  const hasLoadedMoreAppointmentsRef = useRef(false);
+  const hasLoadedMoreProgressNotesRef = useRef(false);
   const locations = getStoredLocations();
+
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
 
   // Modals
   const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
@@ -88,18 +105,39 @@ export default function App() {
 
   // Load & Realtime Subscription dari Firestore
   useEffect(() => {
+    hasAppointmentSnapshotRef.current = false;
+    hasLoadedMoreAppointmentsRef.current = false;
+    appointmentPageIdsRef.current = new Set();
+    setAppointmentPageInfo({ cursor: null, hasMore: false });
     const unsubscribe = subscribeAppointments(
       user,
       isAdmin,
-      (firestoreAppointments) => {
-        if (firestoreAppointments && firestoreAppointments.length > 0) {
+      (firestoreAppointments, pageInfo) => {
+        if (!hasLoadedMoreAppointmentsRef.current) setAppointmentPageInfo(pageInfo);
+        const newPageIds = new Set(firestoreAppointments.map((appointment) => appointment.id));
+        if (!hasAppointmentSnapshotRef.current) {
+          hasAppointmentSnapshotRef.current = true;
+          appointmentPageIdsRef.current = newPageIds;
           setAppointments(firestoreAppointments);
           saveAppointments(firestoreAppointments);
+        } else {
+          const previousPageIds = appointmentPageIdsRef.current;
+          appointmentPageIdsRef.current = newPageIds;
+          setAppointments((current) => {
+            const retainedPages = current.filter(
+              (appointment) => !previousPageIds.has(appointment.id) && !newPageIds.has(appointment.id)
+            );
+            const updated = [...retainedPages, ...firestoreAppointments].sort(
+              (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            );
+            saveAppointments(updated);
+            return updated;
+          });
+        }
 
-          const activeToken = accessToken || safeStorage.get('hnc_google_access_token');
-          if (activeToken) {
-            triggerRealtimeSheetSync(activeToken, firestoreAppointments, 500);
-          }
+        const activeToken = accessTokenRef.current || safeStorage.get('hnc_google_access_token');
+        if (activeToken && firestoreAppointments.length > 0) {
+          triggerRealtimeSheetSync(activeToken, firestoreAppointments, 500);
         }
       },
       (err) => {
@@ -112,7 +150,7 @@ export default function App() {
         unsubscribe();
       }
     };
-  }, [user, isAdmin, accessToken]);
+  }, [user?.id, user?.isGuest, isAdmin, googleUser?.uid]);
 
   // Nakes Mode authentication handlers
   const handleRequestNakesAccess = () => {
@@ -181,13 +219,36 @@ export default function App() {
 
   // Real-time synchronization untuk Catatan Perkembangan Klinis (Rekam Medis) Nakes & Pasien
   useEffect(() => {
+    hasProgressNotesSnapshotRef.current = false;
+    hasLoadedMoreProgressNotesRef.current = false;
+    progressNotesPageIdsRef.current = new Set();
+    setProgressNotesPageInfo({ cursor: null, hasMore: false });
     const unsubscribeNotes = subscribeProgressNotes(
       user,
       isAdmin,
-      (remoteNotes) => {
+      (remoteNotes, pageInfo) => {
+        if (!hasLoadedMoreProgressNotesRef.current) setProgressNotesPageInfo(pageInfo);
         if (isAdmin || (user.id && !user.isGuest)) {
-          setProgressNotes(remoteNotes);
-          saveProgressNotes(remoteNotes);
+          const newPageIds = new Set(remoteNotes.map((note) => note.id));
+          if (!hasProgressNotesSnapshotRef.current) {
+            hasProgressNotesSnapshotRef.current = true;
+            progressNotesPageIdsRef.current = newPageIds;
+            setProgressNotes(remoteNotes);
+            saveProgressNotes(remoteNotes);
+          } else {
+            const previousPageIds = progressNotesPageIdsRef.current;
+            progressNotesPageIdsRef.current = newPageIds;
+            setProgressNotes((current) => {
+              const retainedPages = current.filter(
+                (note) => !previousPageIds.has(note.id) && !newPageIds.has(note.id)
+              );
+              const updated = [...retainedPages, ...remoteNotes].sort(
+                (a, b) => new Date(b.visitDate || 0).getTime() - new Date(a.visitDate || 0).getTime()
+              );
+              saveProgressNotes(updated);
+              return updated;
+            });
+          }
         }
       },
       (err) => {
@@ -200,7 +261,53 @@ export default function App() {
         unsubscribeNotes();
       }
     };
-  }, [user, isAdmin]);
+  }, [user?.id, user?.isGuest, isAdmin, googleUser?.uid]);
+
+  const handleLoadMoreAppointments = async () => {
+    if (isLoadingMoreAppointments || !appointmentPageInfo.hasMore || !appointmentPageInfo.cursor) return;
+    setIsLoadingMoreAppointments(true);
+    try {
+      const page = await getAppointmentsPage(user, isAdmin, appointmentPageInfo.cursor);
+      hasLoadedMoreAppointmentsRef.current = true;
+      setAppointments((current) => {
+        const byId = new Map(current.map((appointment) => [appointment.id, appointment]));
+        page.items.forEach((appointment) => byId.set(appointment.id, appointment));
+        const updated = Array.from(byId.values()).sort(
+          (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        );
+        saveAppointments(updated);
+        return updated;
+      });
+      setAppointmentPageInfo({ cursor: page.cursor, hasMore: page.hasMore });
+    } catch (error) {
+      console.warn('Failed to load the next appointments page:', error);
+    } finally {
+      setIsLoadingMoreAppointments(false);
+    }
+  };
+
+  const handleLoadMoreProgressNotes = async () => {
+    if (isLoadingMoreProgressNotes || !progressNotesPageInfo.hasMore || !progressNotesPageInfo.cursor) return;
+    setIsLoadingMoreProgressNotes(true);
+    try {
+      const page = await getProgressNotesPage(user, isAdmin, progressNotesPageInfo.cursor);
+      hasLoadedMoreProgressNotesRef.current = true;
+      setProgressNotes((current) => {
+        const byId = new Map(current.map((note) => [note.id, note]));
+        page.items.forEach((note) => byId.set(note.id, note));
+        const updated = Array.from(byId.values()).sort(
+          (a, b) => new Date(b.visitDate || 0).getTime() - new Date(a.visitDate || 0).getTime()
+        );
+        saveProgressNotes(updated);
+        return updated;
+      });
+      setProgressNotesPageInfo({ cursor: page.cursor, hasMore: page.hasMore });
+    } catch (error) {
+      console.warn('Failed to load the next progress-notes page:', error);
+    } finally {
+      setIsLoadingMoreProgressNotes(false);
+    }
+  };
 
   const handleGoogleAuthSuccess = (u: any, token: string) => {
     setGoogleUser(u);
@@ -471,6 +578,9 @@ export default function App() {
         {activeTab === 'appointments' && (
           <MyAppointmentsView
             appointments={appointments}
+            hasMoreAppointments={appointmentPageInfo.hasMore}
+            isLoadingMoreAppointments={isLoadingMoreAppointments}
+            onLoadMoreAppointments={handleLoadMoreAppointments}
             currentUser={user}
             progressNotes={progressNotes}
             onOpenBooking={() => handleOpenBooking()}
@@ -502,9 +612,15 @@ export default function App() {
         {activeTab === 'admin' && (
           <AdminDashboardView
             appointments={appointments}
+            hasMoreAppointments={appointmentPageInfo.hasMore}
+            isLoadingMoreAppointments={isLoadingMoreAppointments}
+            onLoadMoreAppointments={handleLoadMoreAppointments}
             therapies={therapies}
             videos={videos}
             progressNotes={progressNotes}
+            hasMoreProgressNotes={progressNotesPageInfo.hasMore}
+            isLoadingMoreProgressNotes={isLoadingMoreProgressNotes}
+            onLoadMoreProgressNotes={handleLoadMoreProgressNotes}
             locations={locations}
             googleUser={googleUser}
             accessToken={accessToken}
